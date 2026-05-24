@@ -589,14 +589,13 @@ body {
           <i class="ti ti-cloud-upload"></i>
           <div class="dz-label">Arraste o arquivo aqui</div>
           <div class="dz-sub">ou clique para selecionar</div>
-          <input type="file" id="file-input" style="display:none" accept=".xlsx,.xls,.csv,.pdf" onchange="handleFile(this.files[0])">
+          <input type="file" id="file-input" style="display:none" accept=".xlsx,.xls,.csv" onchange="handleFile(this.files[0])">
         </div>
 
         <div class="import-types">
           <div class="itype"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="ext">.xlsx</span>Programação semanal, OS, apontamentos</div>
           <div class="itype"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="ext">.xls</span>Arquivos legados do PIMS MI</div>
           <div class="itype"><i class="ti ti-file-text" style="color:var(--blue)"></i><span class="ext">.csv</span>Exportações diretas do sistema</div>
-          <div class="itype"><i class="ti ti-file-type-pdf" style="color:var(--red-l)"></i><span class="ext">.pdf</span>Prog. semanal TOTVS (texto embutido)</div>
         </div>
 
       </div>
@@ -606,7 +605,6 @@ body {
         <div id="hist-list">
           <div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="hist-name">bdd_os_mec.xlsx</span><span class="hist-date">hoje 11:03</span><span class="hist-badge hb-ok">OK · 312 registros</span></div>
           <div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="hist-name">bdd_progsem.xls</span><span class="hist-date">hoje 10:58</span><span class="hist-badge hb-ok">OK · 87 registros</span></div>
-          <div class="hist-row"><i class="ti ti-file-type-pdf" style="color:var(--red-l)"></i><span class="hist-name">Programacao_Semanal_6.pdf</span><span class="hist-date">ontem 16:22</span><span class="hist-badge hb-ok">OK · 149 registros</span></div>
           <div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="hist-name">bdd_apontamento.xls</span><span class="hist-date">ontem 15:47</span><span class="hist-badge hb-err">Erro · verificar formato</span></div>
         </div>
       </div>
@@ -626,8 +624,8 @@ body {
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 /* ===============================================
-   MAN360 - Programação Semanal
-   Config: altere só estas 2 linhas para migrar
+   MAN360 - Programacao Semanal
+   Config: altere so estas 2 linhas para migrar
    =============================================== */
 const SUPABASE_URL = 'https://gwejwvsmmogzdpgyaggf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3ZWp3dnNtbW9nemRwZ3lhZ2dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NTU0NjIsImV4cCI6MjA5NTEzMTQ2Mn0.HgsOjYyHTOiCtjblADpCcwi7SNkK17jjMTdG4Z7H8Uc';
@@ -638,7 +636,7 @@ try {
   console.warn('Supabase não disponível - modo offline:', e.message);
 }
 
-/* -- DADOS FICTÍCIOS POR SEMANA -- */
+/* -- DADOS FICTICIOS POR SEMANA -- */
 const ALL_EQ = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
 const DATA_SEM = {
   5:{ prev:[350,200,75,70,85], real:[280,155,65,63,60], adr:[80,78,87,90,71], mcu:[35,25,7,5,9], dentro:[200,110,50,50,40], fora:[115,65,18,15,36],
@@ -678,7 +676,7 @@ const SEM_LABELS = {5:'Sem 5',6:'Sem 6',7:'Sem 7',8:'Sem 8'};
 let activeSems = [8];
 let activeEqs  = [...ALL_EQ];
 
-/* -- UTILITÁRIOS -- */
+/* -- UTILITARIOS -- */
 function toggleSB() { document.getElementById('sb').classList.toggle('open'); }
 
 function toggleDD(id) {
@@ -723,7 +721,7 @@ function selectAllSems(all) {
   document.getElementById('dd-sem').classList.remove('show');
 }
 
-/* -- AGREGAÇÃO -- */
+/* -- AGREGACAO -- */
 function getAggregated() {
   const eqIdx = activeEqs.map(e=>ALL_EQ.indexOf(e)).filter(i=>i>=0);
   const labels = activeEqs;
@@ -807,7 +805,7 @@ function updateCharts() {
   activeEqs=[...document.querySelectorAll('#dd-eq input:checked')].map(i=>i.value);
   const d=getAggregated();
 
-  /* Métricas */
+  /* Metricas */
   const mHH=document.getElementById('m-hh');
   const mAdr=document.getElementById('m-adr');
   if(mHH) { mHH.textContent=d.totalPrev.toLocaleString('pt-BR')+'h'; }
@@ -860,7 +858,7 @@ function updateCharts() {
   }
 }
 
-/* -- IMPORTAÇÃO -- */
+/* -- IMPORTACAO -- */
 function detectFileType(filename, rows) {
   const name=filename.toLowerCase();
   const flat=rows?rows.flat().map(c=>String(c).toLowerCase()):[];
@@ -879,31 +877,98 @@ function detectFileType(filename, rows) {
 }
 
 function parseProgSemanal(rows) {
-  const registros=[];
-  let equipeAtual='',equipeDesc='';
-  let semana=null,ano=null,dataInicio=null,dataFim=null;
-  rows.slice(0,15).forEach(row=>{
-    const txt=row.join(' ');
-    const mSem=txt.match(/SEM\s*(\d+)/i);
-    if(mSem) semana=parseInt(mSem[1]);
-    const mPer=txt.match(/(\d{2}\/\d{2}\/\d{4})/g);
-    if(mPer&&mPer.length>=2){dataInicio=mPer[0];dataFim=mPer[1];ano=parseInt(mPer[0].split('/')[2]);}
+  const registros = [];
+  let equipeAtual = '', equipeDesc = '';
+  let semana = null, ano = null, dataInicio = null, dataFim = null;
+
+  /* -- Detectar semana e periodo nos primeiros 5 linhas -- */
+  rows.slice(0, 5).forEach(row => {
+    const txt = row.map(c => String(c || '')).join(' ');
+
+    /* Formato novo: "Prog.Semanal : 155 - PROGRAMACAO SEM 8 18/05-24/05/26" */
+    const mSemNovo = txt.match(/SEM\s+(\d+)\s+(\d{2})\/(\d{2})-(\d{2})\/(\d{2})\/(\d{2,4})/i);
+    if (mSemNovo) {
+      semana = parseInt(mSemNovo[1]);
+      const anoRaw = mSemNovo[6];
+      ano = anoRaw.length === 2 ? 2000 + parseInt(anoRaw) : parseInt(anoRaw);
+      dataInicio = mSemNovo[2] + '/' + mSemNovo[3] + '/' + ano;
+      dataFim    = mSemNovo[4] + '/' + mSemNovo[5] + '/' + ano;
+      return;
+    }
+
+    /* Formato antigo: SEM X e datas separadas */
+    if (!semana) {
+      const mSem = txt.match(/SEM\s*(\d+)/i);
+      if (mSem) semana = parseInt(mSem[1]);
+    }
+
+    /* Formato novo: "Inicio : 18/05/2026   Fim : 24/05/2026" */
+    const mIni = txt.match(/In[iI]cio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+    const mFim = txt.match(/Fim\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+    if (mIni) { dataInicio = mIni[1]; ano = parseInt(mIni[1].split('/')[2]); }
+    if (mFim)   dataFim = mFim[1];
+
+    /* Formato antigo: duas datas seguidas */
+    if (!dataInicio) {
+      const mPer = txt.match(/(\d{2}\/\d{2}\/\d{4})/g);
+      if (mPer && mPer.length >= 2) {
+        dataInicio = mPer[0];
+        dataFim    = mPer[1];
+        ano = parseInt(mPer[0].split('/')[2]);
+      }
+    }
   });
-  rows.forEach(row=>{
-    const cells=row.map(c=>String(c).trim());
-    const joined=cells.join(' ');
-    const mEq=joined.match(/Equipe:\s*([A-Z0-9]+)\s*[-]\s*(.+)/i);
-    if(mEq){equipeAtual=mEq[1].trim();equipeDesc=mEq[2].trim();return;}
-    const osNum=cells[0];
-    if(!/^\d{5,}$/.test(osNum)) return;
-    const descricao=cells[1]||'';
-    const equipamento=cells[2]||'';
-    const hhStr=cells[5]||cells[6]||'';
-    const hh=parseFloat(String(hhStr).replace(',','.'))||null;
-    if(!descricao&&!equipamento) return;
-    registros.push({semana,ano,data_inicio:dataInicio,data_fim:dataFim,os:osNum,descricao,equipamento,equipe:equipeAtual,equipe_desc:equipeDesc,hh_previsto:hh,data_inicio_serv:cells[3]||'',hora_inicio:cells[4]||'',data_fim_serv:cells[4]||'',hora_fim:cells[5]||''});
+
+  /* -- Processar linhas de servico -- */
+  rows.forEach(row => {
+    const cells = row.map(c => String(c || '').trim());
+    const joined = cells.join(' ');
+
+    /* Detectar linha de equipe */
+    /* Formato novo: cells[0]='Equipe:', cells[1]='CAL1 - CALDEIRARIA...' */
+    if (cells[0].toLowerCase().startsWith('equipe:') || joined.match(/^Equipe:\s*[A-Z0-9]/i)) {
+      const mEq = (cells[1] || joined).match(/([A-Z0-9]{2,6})\s*[-]\s*(.+)/i);
+      if (mEq) { equipeAtual = mEq[1].trim(); equipeDesc = mEq[2].trim(); }
+      return;
+    }
+
+    /* Linha de servico: primeira celula e numero de OS (5+ digitos) */
+    const osNum = cells[0];
+    if (!/^\d{5,}$/.test(osNum)) return;
+    if (!equipeAtual) return;
+
+    const descricao   = cells[1] || '';
+    const equipamento = cells[2] || '';
+
+    /* H-h: formato novo usa coluna 5 com valor numerico direto */
+    let hh = null;
+    for (let i = 5; i >= 3; i--) {
+      const raw = String(cells[i] || ''); const v = parseFloat(raw.split(/[\r\n]/)[0].replace(',', '.'));
+      if (!isNaN(v) && v > 0 && v < 10000) { hh = v; break; }
+    }
+
+    /* Datas: formato novo tem "18/05 07:00       19/05 12:00" na coluna 3 */
+    const dataCelula = cells[3] || '';
+    const mDatas = dataCelula.match(/(\d{2}\/\d{2})\s+(\d{2}:\d{2})\s+(\d{2}\/\d{2})\s+(\d{2}:\d{2})/);
+    const dataIni  = mDatas ? mDatas[1] : '';
+    const horaIni  = mDatas ? mDatas[2] : '';
+    const dataFimS = mDatas ? mDatas[3] : '';
+    const horaFimS = mDatas ? mDatas[4] : '';
+
+    if (!descricao && !equipamento) return;
+
+    registros.push({
+      semana, ano,
+      data_inicio: dataInicio, data_fim: dataFim,
+      os: osNum, descricao, equipamento,
+      equipe: equipeAtual, equipe_desc: equipeDesc,
+      hh_previsto: hh,
+      data_inicio_serv: dataIni,  hora_inicio: horaIni,
+      data_fim_serv:    dataFimS, hora_fim:    horaFimS,
+    });
   });
-  return {registros,semana,ano,dataInicio,dataFim};
+
+  return { registros, semana, ano, dataInicio, dataFim };
 }
 
 async function salvarProgSemanal(registros) {
@@ -912,8 +977,7 @@ async function salvarProgSemanal(registros) {
   const {semana,ano}=registros[0];
   const {data:existing}=await sb.from('programacao_semanal').select('id',{count:'exact',head:true}).eq('semana',semana).eq('ano',ano);
   if(existing&&existing.length>0){
-    const ok=confirm(`Semana ${semana}/${ano} já importada.
-Deseja substituir os dados?`);
+    const ok=confirm('Semana ' + semana + '/' + ano + ' ja importada. Deseja substituir os dados anteriores?');
     if(!ok){showToast('Importação cancelada','ti-info-circle',3000);return false;}
     await sb.from('programacao_semanal').delete().eq('semana',semana).eq('ano',ano);
   }
@@ -929,138 +993,11 @@ Deseja substituir os dados?`);
 
 function handleDrop(e){e.preventDefault();document.getElementById('dz').classList.remove('over');const f=e.dataTransfer.files[0];if(f)handleFile(f);}
 
-/* -- PARSER PDF - texto do TOTVS via PDF.js módulo ES -- */
-async function lerTextoPDF(file) {
-  const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-  /* Carregar PDF.js sob demanda, apenas quando necessário */
-  if (!window._pdfjsLib) {
-    await new Promise((res, rej) => {
-      const s = document.createElement('script');
-      s.src = PDFJS_URL;
-      s.onload = () => {
-        pdfjsLib.GlobalWorkerOptions.workerSrc =
-          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        window._pdfjsLib = pdfjsLib;
-        res();
-      };
-      s.onerror = rej;
-      document.head.appendChild(s);
-    });
-  }
-  const buf    = await file.arrayBuffer();
-  const pdfDoc = await window._pdfjsLib.getDocument({data: buf}).promise;
-  let texto = '';
-  for (let p = 1; p <= pdfDoc.numPages; p++) {
-    const page    = await pdfDoc.getPage(p);
-    const content = await page.getTextContent();
-    /* Agrupar itens por linha usando posição Y */
-    const byY = {};
-    content.items.forEach(item => {
-      const y = Math.round(item.transform[5]);
-      if (!byY[y]) byY[y] = [];
-      byY[y].push(item.str);
-    });
-    /* Ordenar linhas de cima para baixo (Y maior = mais alto na página) */
-    Object.keys(byY).sort((a,b)=>b-a).forEach(y => {
-      texto += byY[y].join(' ').trim() + '
-';
-    });
-  }
-  return texto;
-}
 
-function parseProgSemanalPDF(texto) {
-  const registros = [];
-  let equipeAtual = '', equipeDesc = '';
-  let semana = null, ano = null, dataInicio = null, dataFim = null;
-
-  /* Detectar semana e período */
-  const mSem = texto.match(/PROGRAMA[ÇC][AÃ]O\s+SEM\s*(\d+)/i) ||
-               texto.match(/Prog\.Semanal\s*:\s*\d+\s*-[^:]+SEM\s*(\d+)/i) ||
-               texto.match(/SEM\s+(\d+)\s+\d{2}\/\d{2}/i);
-  if (mSem) semana = parseInt(mSem[1]);
-
-  const mIni = texto.match(/In[ií]cio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
-  const mFim = texto.match(/Fim\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
-  if (mIni) { dataInicio = mIni[1]; ano = parseInt(mIni[1].split('/')[2]); }
-  if (mFim)   dataFim = mFim[1];
-
-  /* Processar linha a linha */
-  const linhas = texto.split('
-').map(l => l.trim()).filter(Boolean);
-  linhas.forEach(linha => {
-    /* Detectar cabeçalho de equipe */
-    const mEq = linha.match(/Equipe:\s*([A-Z0-9]+)\s*[--]\s*(.+)/i);
-    if (mEq) { equipeAtual = mEq[1].trim(); equipeDesc = mEq[2].trim(); return; }
-
-    /* Detectar linha de serviço: começa com 5+ dígitos */
-    const partes = linha.split(/\s+/);
-    const osNum  = partes[0];
-    if (!/^\d{5,}$/.test(osNum)) return;
-    if (!equipeAtual) return;
-
-    /* H-h é o último token no formato NN.NN */
-    const mHH = linha.match(/(\d{1,3}[.,]\d{2})\s*$/);
-    const hh   = mHH ? parseFloat(mHH[1].replace(',','.')) : null;
-
-    /* Tudo entre OS e H-h é descrição + equipamento */
-    const semOS  = linha.slice(osNum.length).trim();
-    const semHH  = mHH ? semOS.slice(0, semOS.lastIndexOf(mHH[1])).trim() : semOS;
-
-    /* Equipamento: último token que parece código (letras+números) */
-    const tokensResto = semHH.split(/\s+/);
-    const mEqCode = tokensResto.slice().reverse().find(t => /^[A-Z]{2,5}\d{2,6}$/i.test(t));
-    const equipamento = mEqCode || '';
-    const descricao   = equipamento ? semHH.replace(new RegExp(equipamento+'\s*$'),'').trim() : semHH;
-
-    registros.push({
-      semana, ano,
-      data_inicio: dataInicio, data_fim: dataFim,
-      os: osNum, descricao, equipamento,
-      equipe: equipeAtual, equipe_desc: equipeDesc,
-      hh_previsto: hh,
-      data_inicio_serv: '', hora_inicio: '',
-      data_fim_serv:    '', hora_fim:    '',
-    });
-  });
-  return { registros, semana, ano, dataInicio, dataFim };
-}
 
 async function handleFile(file) {
   if (!file) return;
-  const ext = file.name.split('.').pop().toLowerCase();
   showToast('Lendo ' + file.name + '...', 'ti-loader');
-
-  /* -- PDF -- */
-  if (ext === 'pdf') {
-    try {
-      showToast('Carregando leitor de PDF...', 'ti-loader', 4000);
-      const texto = await lerTextoPDF(file);
-      const { registros, semana, ano } = parseProgSemanalPDF(texto);
-      const semInfo = semana ? `Semana ${semana}${ano ? '  .  ' + ano : ''}` : 'semana não identificada';
-
-      if (!registros.length) {
-        addHistRow(file.name, 'Prog. Semanal PDF', false, 'Nenhum serviço extraído');
-        showToast('Nenhum serviço encontrado no PDF. Verifique se é gerado pelo TOTVS.', 'ti-alert-circle', 6000);
-        return;
-      }
-      showToast(semInfo + '  .  ' + registros.length + ' serviços  .  salvando...', 'ti-calendar', 4000);
-      const saved = await salvarProgSemanal(registros);
-      if (saved) {
-        addHistRow(file.name, 'Prog. Semanal PDF - ' + semInfo, true, 'OK  .  ' + saved + ' registros');
-        showToast('PDF salvo: ' + saved + ' serviços da ' + semInfo, 'ti-check', 5000);
-      } else {
-        addHistRow(file.name, 'Prog. Semanal PDF', false, 'Erro ao salvar');
-      }
-    } catch (err) {
-      console.error(err);
-      addHistRow(file.name, 'Prog. Semanal PDF', false, 'Erro: ' + err.message);
-      showToast('Erro ao ler PDF: ' + err.message, 'ti-alert-circle', 6000);
-    }
-    return;
-  }
-
-  /* -- EXCEL / CSV -- */
   const reader = new FileReader();
   reader.onload = async ev => {
     try {
@@ -1070,24 +1007,24 @@ async function handleFile(file) {
       const detected = detectFileType(file.name, rows);
       if (detected.type === 'progsem') {
         const {registros, semana, ano} = parseProgSemanal(rows);
-        const semInfo = semana ? `Semana ${semana}${ano?'  .  '+ano:''}` : 'semana não identificada';
+        const semInfo = semana ? 'Semana ' + semana + (ano ? ' . ' + ano : '') : 'semana nao identificada';
         if (!registros.length) {
-          addHistRow(file.name, detected.label, false, 'Nenhum serviço encontrado');
-          showToast('Nenhum serviço encontrado no arquivo.', 'ti-alert-circle', 5000);
+          addHistRow(file.name, detected.label, false, 'Nenhum servico encontrado');
+          showToast('Nenhum servico encontrado no arquivo.', 'ti-alert-circle', 5000);
           return;
         }
-        showToast(semInfo + '  .  ' + registros.length + ' serviços  .  salvando...', 'ti-calendar', 4000);
+        showToast(semInfo + ' . ' + registros.length + ' servicos . salvando...', 'ti-calendar', 4000);
         const saved = await salvarProgSemanal(registros);
         if (saved) {
-          addHistRow(file.name, 'Prog. Semanal - ' + semInfo, true, 'OK  .  ' + saved + ' registros');
-          showToast('Salvo: ' + saved + ' serviços', 'ti-check', 5000);
+          addHistRow(file.name, 'Prog. Semanal - ' + semInfo, true, 'OK . ' + saved + ' registros');
+          showToast('Salvo: ' + saved + ' servicos', 'ti-check', 5000);
         } else {
           addHistRow(file.name, detected.label, false, 'Erro ao salvar');
         }
       } else {
         const dataRows = rows.filter(r => r.some(c => String(c).trim())).length;
-        addHistRow(file.name, detected.label, true, 'Identificado  .  ' + dataRows + ' linhas');
-        showToast('Identificado: ' + detected.label + ' (módulo em desenvolvimento)', 'ti-info-circle', 5000);
+        addHistRow(file.name, detected.label, true, 'Identificado . ' + dataRows + ' linhas');
+        showToast('Identificado: ' + detected.label + ' (modulo em desenvolvimento)', 'ti-info-circle', 5000);
       }
     } catch (err) {
       addHistRow(file.name, 'Erro', false, 'Erro: ' + err.message);
@@ -1097,6 +1034,7 @@ async function handleFile(file) {
   reader.readAsArrayBuffer(file);
 }
 
+
 function addHistRow(name,type,ok,badge){
   const now=new Date();
   const time=now.getHours()+':'+String(now.getMinutes()).padStart(2,'0');
@@ -1105,7 +1043,7 @@ function addHistRow(name,type,ok,badge){
   document.getElementById('hist-list').insertAdjacentHTML('afterbegin',`<div class="hist-row"><i class="ti ${icon}" style="color:${color}"></i><span class="hist-name" title="${name}">${name}</span><span class="hist-date">hoje ${time}</span><span class="hist-badge ${ok?'hb-ok':'hb-err'}">${badge}</span></div>`);
 }
 
-/* -- INICIALIZAÇÃO (após todos os scripts externos carregarem) -- */
+/* -- INICIALIZACAO (apos todos os scripts externos carregarem) -- */
 window.addEventListener('load', function() {
   const base={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{}}};
 
