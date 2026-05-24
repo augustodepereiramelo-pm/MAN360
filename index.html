@@ -658,37 +658,182 @@ function showToast(msg, icon='ti-info-circle', duration=3000) {
 }
 
 /* ── IDENTIFICAR ARQUIVO ── */
-function detectFileType(filename, headers) {
+function detectFileType(filename, rows) {
   const name = filename.toLowerCase();
+  const flat = rows ? rows.flat().map(c => String(c).toLowerCase()) : [];
+  const joined = flat.join(' ');
 
-  /* 1. Tentar pelo conteúdo (colunas) — mais confiável */
-  if (headers) {
-    const h = headers.map(c => String(c).toLowerCase());
-    if (h.includes('o.s.') && h.includes('codigo serviço') && h.includes('tipo ativ.'))
-      return { type: 'os', label: 'Ordens de Serviço' };
-    if (h.includes('hr.in') || h.includes('hr.fim') || h.includes('hr.total'))
-      return { type: 'apontamento', label: 'Apontamento de Mão de Obra' };
-    if (h.includes('pré-os') || h.includes('pre-os') || h.includes('situação') && h.includes('os'))
-      return { type: 'preos', label: 'Pré-Ordens de Serviço' };
-    if (h.includes('n° solicitação') || h.includes('código_material'))
-      return { type: 'material', label: 'Solicitação de Material' };
-    if (h.includes('h-h (hr:mi)') || h.includes('equipe:'))
-      return { type: 'progsem', label: 'Programação Semanal' };
-  }
+  /* Pelo conteúdo — mais confiável */
+  if (flat.some(c => c.includes('h-h (hr:mi)')) || joined.includes('prog.semanal') || joined.includes('plano de execução'))
+    return { type: 'progsem', label: 'Programação Semanal' };
+  if (flat.some(c => c === 'o.s.') && flat.some(c => c.includes('codigo serviço')))
+    return { type: 'os', label: 'Ordens de Serviço' };
+  if (flat.some(c => c.includes('hr.in')) || flat.some(c => c.includes('hr.fim')))
+    return { type: 'apontamento', label: 'Apontamento de Mão de Obra' };
+  if (flat.some(c => c.includes('pré-os') || c.includes('pre-os')))
+    return { type: 'preos', label: 'Pré-Ordens de Serviço' };
+  if (flat.some(c => c.includes('código_material') || c.includes('n° solicitação')))
+    return { type: 'material', label: 'Solicitação de Material' };
 
-  /* 2. Fallback pelo nome */
+  /* Fallback pelo nome */
+  if (name.includes('progsem') || name.includes('prog_sem') || name.includes('programacao'))
+    return { type: 'progsem', label: 'Programação Semanal' };
   if (name.includes('os_cal') || name.includes('os_mec') || name.includes('os_civ') || name.includes('os_ele'))
     return { type: 'os', label: 'Ordens de Serviço' };
   if (name.includes('apontamento'))
     return { type: 'apontamento', label: 'Apontamento de Mão de Obra' };
   if (name.includes('preos') || name.includes('pre_os'))
     return { type: 'preos', label: 'Pré-Ordens de Serviço' };
-  if (name.includes('progsem') || name.includes('prog_sem') || name.includes('programacao'))
-    return { type: 'progsem', label: 'Programação Semanal' };
   if (name.includes('material') || name.includes('solic'))
     return { type: 'material', label: 'Solicitação de Material' };
 
   return { type: 'unknown', label: 'Tipo não identificado' };
+}
+
+/* ── PARSER: PROGRAMAÇÃO SEMANAL (Excel/XLS) ──
+   Formato TOTVS: blocos por equipe, linha "Equipe: XXX" seguida de serviços */
+function parseProgSemanal(rows) {
+  const registros = [];
+  let equipeAtual = '';
+  let equipeDesc  = '';
+  let semana = null, ano = null, dataInicio = null, dataFim = null;
+
+  /* Detectar semana e período no cabeçalho */
+  rows.slice(0, 15).forEach(row => {
+    const txt = row.join(' ');
+    /* Padrão: "155 - PROGRAMAÇÃO SEM 8 18/05-24/05/26" */
+    const mSem = txt.match(/SEM\s*(\d+)/i);
+    if (mSem) semana = parseInt(mSem[1]);
+
+    const mPer = txt.match(/(\d{2})\/(\d{2})\/(\d{4})/g);
+    if (mPer && mPer.length >= 2) {
+      dataInicio = mPer[0];
+      dataFim    = mPer[1];
+      ano        = parseInt(mPer[0].split('/')[2]);
+    }
+    /* Formato curto: 18/05-24/05/26 */
+    const mCurto = txt.match(/(\d{2}\/\d{2})-(\d{2}\/\d{2})\/(\d{2})/);
+    if (mCurto && !dataInicio) {
+      dataInicio = mCurto[1] + '/20' + mCurto[3];
+      dataFim    = mCurto[2] + '/20' + mCurto[3];
+      ano        = 2000 + parseInt(mCurto[3]);
+    }
+  });
+
+  rows.forEach((row, ri) => {
+    const cells = row.map(c => String(c).trim());
+    const joined = cells.join(' ');
+
+    /* Detectar linha de equipe: "Equipe: CAL1 - CALDEIRARIA INDUSTRIAL 01" */
+    const mEq = joined.match(/Equipe:\s*([A-Z0-9]+)\s*[-–]\s*(.+)/i);
+    if (mEq) {
+      equipeAtual = mEq[1].trim();
+      equipeDesc  = mEq[2].trim();
+      return;
+    }
+
+    /* Linha de serviço: primeira célula é número de OS (5+ dígitos) */
+    const osNum = cells[0];
+    if (!/^\d{5,}$/.test(osNum)) return;
+
+    /* Colunas do relatório TOTVS:
+       OS | Descrição Serviço | Equipamento | Início | Fim | H-h */
+    const descricao   = cells[1] || '';
+    const equipamento = cells[2] || '';
+    /* Datas vêm como "18/05" → completar com ano */
+    const rawIni = cells[3] || '';
+    const rawFim = cells[4] || '';
+    const hhStr  = cells[5] || cells[6] || '';
+    const hh     = parseFloat(String(hhStr).replace(',', '.')) || null;
+
+    if (!descricao && !equipamento) return; /* linha vazia */
+
+    registros.push({
+      semana:           semana,
+      ano:              ano,
+      data_inicio:      dataInicio,
+      data_fim:         dataFim,
+      os:               osNum,
+      descricao:        descricao,
+      equipamento:      equipamento,
+      equipe:           equipeAtual,
+      equipe_desc:      equipeDesc,
+      hh_previsto:      hh,
+      data_inicio_serv: rawIni,
+      hora_inicio:      cells[4] || '',
+      data_fim_serv:    rawFim,
+      hora_fim:         cells[5] || '',
+    });
+  });
+
+  return { registros, semana, ano, dataInicio, dataFim };
+}
+
+/* ── SALVAR NO SUPABASE ── */
+async function salvarProgSemanal(registros, filename) {
+  if (!registros.length) {
+    showToast('Nenhum registro encontrado no arquivo', 'ti-alert-circle', 5000);
+    return false;
+  }
+
+  const { semana, ano } = registros[0];
+
+  /* Verificar se já existe essa semana/ano no banco */
+  const { data: existing, error: checkErr } = await sb
+    .from('programacao_semanal')
+    .select('id', { count: 'exact', head: true })
+    .eq('semana', semana)
+    .eq('ano', ano);
+
+  if (checkErr) {
+    showToast('Erro ao verificar banco: ' + checkErr.message, 'ti-alert-circle', 5000);
+    return false;
+  }
+
+  /* Se já existe, perguntar antes de sobrescrever */
+  if (existing && existing.length > 0) {
+    const confirmar = confirm(
+      `A Semana ${semana}/${ano} já foi importada anteriormente.
+
+` +
+      `Deseja apagar os dados anteriores e reimportar?
+
+` +
+      `Clique OK para substituir ou Cancelar para manter os dados atuais.`
+    );
+    if (!confirmar) {
+      showToast('Importação cancelada — dados anteriores mantidos.', 'ti-info-circle', 4000);
+      return false;
+    }
+
+    /* Apagar registros anteriores desta semana/ano */
+    const { error: delErr } = await sb
+      .from('programacao_semanal')
+      .delete()
+      .eq('semana', semana)
+      .eq('ano', ano);
+
+    if (delErr) {
+      showToast('Erro ao limpar dados anteriores: ' + delErr.message, 'ti-alert-circle', 5000);
+      return false;
+    }
+    showToast(`Dados anteriores da Semana ${semana} removidos. Reimportando…`, 'ti-loader', 3000);
+  }
+
+  /* Inserir em lotes de 200 */
+  const BATCH = 200;
+  let total = 0;
+  for (let i = 0; i < registros.length; i += BATCH) {
+    const lote = registros.slice(i, i + BATCH);
+    const { error } = await sb.from('programacao_semanal').insert(lote);
+    if (error) {
+      console.error('Erro Supabase:', error);
+      showToast(`Erro ao salvar: ${error.message}`, 'ti-alert-circle', 6000);
+      return false;
+    }
+    total += lote.length;
+  }
+  return total;
 }
 
 /* ── PROCESSAR ARQUIVO ── */
@@ -699,43 +844,58 @@ function handleDrop(e) {
   if (file) handleFile(file);
 }
 
-function handleFile(file) {
+async function handleFile(file) {
   if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
   showToast(`Lendo ${file.name}…`, 'ti-loader');
 
   if (ext === 'pdf') {
-    const detected = detectFileType(file.name, null);
-    addHistRow(file.name, detected.label, true, 'PDF · leitura manual necessária');
-    showToast(`PDF recebido — extração automática de PDF chegará em breve. Por enquanto use a planilha Excel equivalente.`, 'ti-info-circle', 6000);
+    addHistRow(file.name, 'Programação Semanal (PDF)', true, 'PDF · use o Excel equivalente por ora');
+    showToast('PDFs do TOTVS: por enquanto exporte como Excel. Suporte a PDF chegará em breve.', 'ti-info-circle', 6000);
     return;
   }
 
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async ev => {
     try {
-      const wb = XLSX.read(e.target.result, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
+      const wb   = XLSX.read(ev.target.result, { type: 'array' });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-      /* Pegar primeira linha não vazia como cabeçalho */
-      const headers = rows.find(r => r.some(c => String(c).trim() !== '')) || [];
-      const detected = detectFileType(file.name, headers);
-      const dataRows = rows.filter(r => r.some(c => String(c).trim() !== '')).length;
+      const detected = detectFileType(file.name, rows);
 
-      addHistRow(file.name, detected.label, true, `OK · ${dataRows} linhas`);
-      showToast(`Identificado: ${detected.label} · ${dataRows} linhas`, 'ti-check', 5000);
-
-      /* Detectar semana se for progsem */
       if (detected.type === 'progsem') {
-        const allText = rows.flat().join(' ');
-        const semMatch = allText.match(/PROGRAMA[ÇC][AÃ]O\s+SEM\s*(\d+)/i);
-        if (semMatch) showToast(`Semana detectada: Semana ${semMatch[1]}`, 'ti-calendar', 5000);
+        showToast('Programação Semanal detectada — processando…', 'ti-loader', 3000);
+        const { registros, semana, ano, dataInicio, dataFim } = parseProgSemanal(rows);
+
+        if (!registros.length) {
+          addHistRow(file.name, detected.label, false, 'Erro · nenhum serviço encontrado');
+          showToast('Nenhum serviço encontrado. Verifique se o arquivo está no formato correto.', 'ti-alert-circle', 6000);
+          return;
+        }
+
+        const semInfo = semana ? `Semana ${semana}${ano ? ' · ' + ano : ''}` : 'semana não identificada';
+        showToast(`${semInfo} · ${registros.length} serviços encontrados · salvando…`, 'ti-calendar', 4000);
+
+        const saved = await salvarProgSemanal(registros, file.name);
+        if (saved) {
+          addHistRow(file.name, `Prog. Semanal — ${semInfo}`, true, `OK · ${saved} registros`);
+          showToast(`Salvo com sucesso: ${saved} serviços da ${semInfo}`, 'ti-check', 5000);
+        } else {
+          addHistRow(file.name, detected.label, false, 'Erro ao salvar no banco');
+        }
+
+      } else {
+        /* Outros tipos — só identificar por ora */
+        const dataRows = rows.filter(r => r.some(c => String(c).trim())).length;
+        addHistRow(file.name, detected.label, true, `Identificado · ${dataRows} linhas`);
+        showToast(`Identificado: ${detected.label} · ${dataRows} linhas (módulo em desenvolvimento)`, 'ti-info-circle', 5000);
       }
 
     } catch (err) {
+      console.error(err);
       addHistRow(file.name, 'Erro na leitura', false, 'Erro · verificar formato');
-      showToast('Erro ao ler o arquivo', 'ti-alert-circle', 4000);
+      showToast('Erro ao ler o arquivo: ' + err.message, 'ti-alert-circle', 5000);
     }
   };
   reader.readAsArrayBuffer(file);
