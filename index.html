@@ -1000,8 +1000,7 @@ function parseOS(rows) {
   const iNome=col('nome'); const iSafra=col('safra');
   rows.slice(hdrIdx+1).forEach(row=>{
     const g=i=>i>=0&&i<row.length?str(row[i]):'';
-    const osRaw=g(iOS);
-    const os=String(Math.round(parseFloat(osRaw))||osRaw).replace(/\.0+$/,"");
+    const os=g(iOS);
     if(!os||!/^\d{4,}$/.test(os)) return;
     registros.push({
       empresa:'2', safra:g(iSafra),
@@ -1023,24 +1022,32 @@ function parseOS(rows) {
 /* -- PARSER PRE-ORDENS -- */
 function parsePreOS(rows) {
   const registros=[];
-  let hdrIdx=rows.findIndex(r=>r.some(c=>String(c||'').toLowerCase().includes('pre-os')||String(c||'').toLowerCase()==='pre-os'));
-  if(hdrIdx<0) return registros;
-  const hdr=rows[hdrIdx].map(c=>String(c||'').toLowerCase().trim());
-  const col=name=>hdr.findIndex(h=>h.includes(name));
-  const iPreOS=col('pre-os'); const iSit=col('situa');
-  const iOS=col(' os'); const iDataCom=col('data comun');
-  const iHoraCom=col('hora comun'); const iDataInc=col('data inclu');
-  const iHoraInc=col('hora inclu'); const iUser=col('usu');
-  const iDesc=col('descri'); const iMis=col('mis');
+  const n=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  let hdrIdx=rows.findIndex(r=>r.some(c=>n(c)==='pre-os'));
+  if(hdrIdx<0) hdrIdx=rows.findIndex(r=>r.some(c=>n(c).startsWith('pre-os')));
+  if(hdrIdx<0) hdrIdx=2;
+  const hdr=rows[hdrIdx].map(c=>n(c));
+  const colX=name=>hdr.findIndex(h=>h===name);
+  const colP=name=>hdr.findIndex(h=>h.includes(name));
+  const iPreOS=colX('pre-os')>=0?colX('pre-os'):0;
+  const iSit  =colX('situacao')>=0?colX('situacao'):colP('situa')>=0?colP('situa'):1;
+  const iOS   =colX('os')>=0&&colX('os')!==iPreOS?colX('os'):2;
+  const iDCom =colP('data comun')>=0?colP('data comun'):3;
+  const iHCom =colP('hora comun')>=0?colP('hora comun'):4;
+  const iDInc =colP('data inclu')>=0?colP('data inclu'):5;
+  const iHInc =colP('hora inclu')>=0?colP('hora inclu'):6;
+  const iUser =colX('usuario')>=0?colX('usuario'):colP('usu')>=0?colP('usu'):7;
+  const iDesc =colP('descri')>=0?colP('descri'):8;
+  const iMis  =colX('mis')>=0?colX('mis'):9;
   rows.slice(hdrIdx+1).forEach(row=>{
     const g=i=>i>=0&&i<row.length?str(row[i]):'';
-    const preOS=String(Math.round(parseFloat(g(iPreOS)))||'').replace(/\.0+$/,'');
+    const preOS=String(parseInt(g(iPreOS))||'');
     if(!preOS||!/^\d+$/.test(preOS)) return;
     registros.push({
-      pre_os:preOS, situacao:g(iSit), os:g(iOS)||null,
-      data_comunicacao:g(iDataCom), hora_comunicacao:g(iHoraCom),
-      data_inclusao:g(iDataInc), hora_inclusao:g(iHoraInc),
-      usuario:g(iUser), descricao_servico:g(iDesc).slice(0,300),
+      pre_os:preOS, situacao:g(iSit)||null, os:g(iOS)||null,
+      data_comunicacao:g(iDCom)||null, hora_comunicacao:g(iHCom)||null,
+      data_inclusao:g(iDInc)||null, hora_inclusao:g(iHInc)||null,
+      usuario:g(iUser)||null, descricao_servico:g(iDesc).slice(0,300),
       mis:g(iMis).slice(0,50),
     });
   });
@@ -1048,10 +1055,6 @@ function parsePreOS(rows) {
 }
 
 /* -- PARSER APONTAMENTO -- */
-/* Formato: pares de linhas
-   Linha A: [data, tipo_ativ, hora_ini, hora_fim, hh_total]
-   Linha B: [os,   descricao_servico]
-   Cabecalho funcionario: cells[0]='Funcionario:', cells[1]='000034488 - NOME' */
 function parseApontamento(rows) {
   const registros=[];
   let cracha='', nome='';
@@ -1060,37 +1063,27 @@ function parseApontamento(rows) {
   rows.forEach(row=>{
     const cells=row.map(c=>String(c||'').trim());
     const c0=cells[0]||'';
-    /* Linha de funcionario */
     if(c0.toLowerCase().startsWith('funcion')){
-      const funcStr=cells[1]||'';
-      const mF=funcStr.match(/^(\d+)\s*-\s*(.+)/);
+      const mF=(cells[1]||'').match(/^(\d+)\s*-\s*(.+)/);
       if(mF){ cracha=mF[1].padStart(9,'0'); nome=mF[2].trim(); }
       pendente=false; return;
     }
-    /* Linha de data: [data, tipo_ativ, hora_ini, hora_fim, hh_total] */
     if(/^\d{2}\/\d{2}\/\d{4}$/.test(c0)){
       dataAtual=c0; tipoAtiv=cells[1]||'';
       horaIni=cells[2]||'00:00'; horaFim=cells[3]||'00:00';
-      const hhStr=(cells[4]||'').replace(',','.');
-      hhTotal=parseFloat(hhStr)||null;
+      hhTotal=parseFloat((cells[4]||'').replace(',','.'))||null;
       pendente=true; return;
     }
-    /* Linha de OS: [os, descricao] -- vem logo apos linha de data */
-    if(pendente && /^\d{5,6}$/.test(c0)){
+    if(pendente&&/^\d{5,6}$/.test(c0)){
       const descRaw=cells[1]||'';
       const mCod=descRaw.match(/^(\d+)-(.+)/);
       registros.push({
-        data_apontamento: dataAtual,
-        cracha:           cracha,
-        nome_funcionario: nome.slice(0,100),
-        os:               c0,
-        codigo_servico:   mCod?mCod[1]:'',
+        data_apontamento:dataAtual, cracha:cracha,
+        nome_funcionario:nome.slice(0,100), os:c0,
+        codigo_servico:mCod?mCod[1]:'',
         descricao_servico:(mCod?mCod[2].trim():descRaw).slice(0,200),
-        hora_inicio:      horaIni||'00:00',
-        hora_fim:         horaFim||'00:00',
-        hh_total:         hhTotal,
-        tipo_atividade:   tipoAtiv||null,
-        equipe:           null,
+        hora_inicio:horaIni||'00:00', hora_fim:horaFim||'00:00',
+        hh_total:hhTotal, tipo_atividade:tipoAtiv||null, equipe:null,
       });
       pendente=false;
     }
@@ -1098,25 +1091,17 @@ function parseApontamento(rows) {
   return registros;
 }
 
-
-/* -- SALVAR GENERICO -- */
+/* -- SALVAR GENERICO com UPSERT -- */
 async function salvarNoBanco(tabela, registros, conflictCols) {
   if(!registros.length){ showToast('Nenhum registro encontrado','ti-alert-circle',5000); return false; }
   if(!sb){ showToast('Sem conexao com banco','ti-alert-circle',5000); return false; }
   const BATCH=100; let total=0;
   for(let i=0;i<registros.length;i+=BATCH){
     const lote=registros.slice(i,i+BATCH);
-    let result;
-    if(conflictCols){
-      result=await sb.from(tabela).upsert(lote,{onConflict:conflictCols,ignoreDuplicates:false});
-    } else {
-      result=await sb.from(tabela).upsert(lote,{ignoreDuplicates:true});
-    }
-    if(result.error){
-      console.error(result.error);
-      showToast('Erro ao salvar: '+result.error.message,'ti-alert-circle',7000);
-      return false;
-    }
+    const result=conflictCols
+      ?await sb.from(tabela).upsert(lote,{onConflict:conflictCols,ignoreDuplicates:false})
+      :await sb.from(tabela).upsert(lote,{ignoreDuplicates:true});
+    if(result.error){ console.error(result.error); showToast('Erro: '+result.error.message,'ti-alert-circle',7000); return false; }
     total+=lote.length;
   }
   return total;
