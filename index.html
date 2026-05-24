@@ -1,10 +1,927 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>MAN360</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAN360 — Gestão de Manutenção</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<style>
+/* ── CONFIG ── */
+:root {
+  --yellow:   #F8C100;
+  --yellow-d: #C8A200;
+  --red:      #C8102E;
+  --red-l:    #E24B4A;
+  --green:    #1D9E75;
+  --blue:     #378ADD;
+  --dark:     #ffffff;
+  --dark2:    #f5f5f5;
+  --dark3:    #ebebeb;
+  --border:   rgba(0,0,0,.08);
+  --text:     #1a1a1a;
+  --text-2:   #555555;
+  --text-3:   #999999;
+  --bg:       #f0f0f0;
+  --card:     #ffffff;
+  --card2:    #f7f7f7;
+  --radius:   10px;
+  --radius-sm:6px;
+  --font:     'IBM Plex Sans', sans-serif;
+  --mono:     'IBM Plex Mono', monospace;
+  --sidebar-w: 52px;
+  --sidebar-open: 200px;
+  --topbar-h: 48px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--dark);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 2px;
+  transition: width .22s cubic-bezier(.4,0,.2,1);
+  overflow: hidden;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.sidebar.open { width: var(--sidebar-open); align-items: flex-start; }
+
+.sb-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0 8px;
+  margin-bottom: 16px;
+  gap: 10px;
+}
+
+.sb-logo {
+  width: 34px; height: 34px;
+  background: var(--red);
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: #fff;
+  flex-shrink: 0;
+  letter-spacing: .5px;
+}
+
+.sb-brand {
+  font-size: 14px; font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity .15s;
+  overflow: hidden;
+}
+.sidebar.open .sb-brand { opacity: 1; }
+
+.sb-toggle {
+  width: 28px; height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-left: auto;
+  transition: background .15s, color .15s;
+}
+.sb-toggle:hover { background: var(--dark3); color: var(--text); }
+
+.sb-sep {
+  width: 28px; height: 1px;
+  background: var(--border);
+  margin: 4px auto;
+  transition: width .22s;
+}
+.sidebar.open .sb-sep { width: calc(100% - 16px); margin: 4px 8px; }
+
+.nav-item {
+  width: 100%;
+  display: flex; align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+  position: relative;
+}
+.nav-item i { font-size: 18px; flex-shrink: 0; width: 34px; text-align: center; }
+.nav-item span { opacity: 0; transition: opacity .12s; overflow: hidden; }
+.sidebar.open .nav-item span { opacity: 1; }
+.nav-item:hover { background: var(--dark3); color: var(--text); }
+.nav-item.active { background: rgba(248,193,0,.12); color: var(--yellow); }
+.nav-item.active i { color: var(--yellow); }
+
+/* ── MAIN ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── TOPBAR ── */
+.topbar {
+  height: var(--topbar-h);
+  background: var(--dark);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 16px; gap: 10px;
+  flex-shrink: 0;
+}
+
+.page-title {
+  font-size: 13px; font-weight: 500;
+  color: var(--text);
+  flex: 1;
+  display: flex; align-items: center; gap: 8px;
+}
+.page-title i { color: var(--yellow); font-size: 16px; }
+
+.top-chip {
+  height: 28px; padding: 0 12px;
+  font-size: 11px; font-family: var(--font);
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+  transition: border-color .15s, color .15s;
+}
+.top-chip:hover { border-color: var(--yellow); color: var(--yellow); }
+
+/* ── CONTENT ── */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #ccc transparent;
+}
+
+/* ── FILTER BAR ── */
+.filter-bar {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  display: flex; align-items: center;
+  gap: 12px; flex-wrap: wrap;
+}
+
+.f-label {
+  font-size: 10px; font-weight: 500;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  white-space: nowrap;
+}
+
+.dd-wrap { position: relative; }
+
+.dd-btn {
+  height: 30px; padding: 0 12px;
+  font-size: 11px; font-family: var(--font);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--dark2);
+  color: var(--text);
+  cursor: pointer;
+  display: flex; align-items: center; gap: 7px;
+  white-space: nowrap;
+  min-width: 148px;
+  transition: border-color .15s;
+}
+.dd-btn:hover { border-color: var(--yellow); }
+.dd-btn .arr { margin-left: auto; font-size: 12px; color: var(--text-3); }
+
+.dd-panel {
+  position: absolute; top: 34px; left: 0;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px;
+  z-index: 200;
+  min-width: 190px;
+  display: none; flex-direction: column; gap: 2px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.10);
+}
+.dd-panel.show { display: flex; }
+
+.dd-group {
+  font-size: 10px; font-weight: 500;
+  color: var(--text-3);
+  padding: 4px 8px 2px;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+
+.dd-sep { height: 1px; background: var(--border); margin: 3px 0; }
+
+.dd-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px; cursor: pointer; color: var(--text);
+  transition: background .12s;
+}
+.dd-item:hover { background: var(--dark3); }
+.dd-item input[type=checkbox] { accent-color: var(--red); width: 13px; height: 13px; flex-shrink: 0; }
+.dd-item.off { opacity: .35; cursor: default; }
+
+/* ── METRICS ── */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap: 10px;
+}
+
+.metric {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.m-label { font-size: 10px; color: var(--text-3); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
+.m-val   { font-size: 22px; font-weight: 600; line-height: 1; }
+.m-sub   { font-size: 10px; color: var(--text-3); margin-top: 4px; }
+
+/* ── CARDS ── */
+.charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.card-title {
+  font-size: 11px; font-weight: 500;
+  color: var(--text-2);
+  margin-bottom: 12px;
+  text-transform: uppercase; letter-spacing: .06em;
+  display: flex; align-items: center; gap: 6px;
+}
+.card-title span {
+  font-weight: 400; color: var(--text-3);
+  text-transform: none; letter-spacing: 0;
+}
+
+.chart-wrap { position: relative; }
+
+/* ── BOTTOM 2 col ── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ── ALERTS ── */
+.alert-list { display: flex; flex-direction: column; }
+.alert-li {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; line-height: 1.55;
+  color: var(--text-2);
+}
+.alert-li:last-child { border-bottom: none; }
+.alert-li i { font-size: 15px; margin-top: 1px; flex-shrink: 0; }
+.alert-li strong { font-weight: 500; color: var(--text); }
+.c-red { color: var(--red-l); }
+.c-amber { color: #D4890A; }
+.c-blue { color: var(--blue); }
+.c-gray { color: var(--text-3); }
+
+/* ── REPROGRAMADAS ── */
+.repr-li {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; line-height: 1.5;
+  color: var(--text-2);
+}
+.repr-li:last-child { border-bottom: none; }
+.repr-num { font-weight: 500; color: var(--text); font-family: var(--mono); font-size: 11px; flex-shrink: 0; min-width: 40px; }
+.repr-dot { width: 6px; height: 6px; border-radius: 50%; background: #D4890A; flex-shrink: 0; margin-top: 5px; }
+
+/* ── IMPORT ── */
+.import-body { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+
+.dropzone {
+  flex: 1; min-width: 160px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 20px 16px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 7px; cursor: pointer; text-align: center;
+  transition: border-color .2s, background .2s;
+}
+.dropzone:hover, .dropzone.over {
+  border-color: var(--yellow);
+  background: rgba(248,193,0,.04);
+}
+.dropzone i { font-size: 30px; color: var(--yellow); }
+.dz-label { font-size: 12px; font-weight: 500; color: var(--text); }
+.dz-sub { font-size: 10px; color: var(--text-3); }
+
+.import-types { display: flex; flex-direction: column; gap: 6px; }
+.itype {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 11px; color: var(--text-2);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--dark2);
+}
+.itype i { font-size: 15px; }
+.itype .ext { font-weight: 500; color: var(--text); min-width: 32px; font-family: var(--mono); font-size: 11px; }
+
+.import-history { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.hist-title { font-size: 10px; font-weight: 500; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+.hist-row {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 11px; padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+}
+.hist-row:last-child { border-bottom: none; }
+.hist-row i { font-size: 14px; flex-shrink: 0; }
+.hist-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-family: var(--mono); font-size: 10px; }
+.hist-date { font-size: 10px; color: var(--text-3); flex-shrink: 0; }
+.hist-badge { font-size: 10px; padding: 2px 7px; border-radius: 99px; flex-shrink: 0; }
+.hb-ok  { background: rgba(29,158,117,.15); color: #1D9E75; }
+.hb-err { background: rgba(226,75,74,.15);  color: var(--red-l); }
+
+/* ── STATUS BADGE ── */
+.status { font-size: 10px; padding: 2px 7px; border-radius: 99px; font-weight: 500; }
+.s-ok   { background: rgba(29,158,117,.15); color: #1D9E75; }
+.s-warn { background: rgba(212,137,10,.15);  color: #D4890A; }
+.s-red  { background: rgba(226,75,74,.15);   color: var(--red-l); }
+
+/* ── TOAST ── */
+#toast {
+  position: fixed; bottom: 20px; right: 20px;
+  background: var(--card2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px 16px;
+  font-size: 12px; color: var(--text);
+  display: none; align-items: center; gap: 8px;
+  z-index: 999; box-shadow: 0 4px 20px rgba(0,0,0,.12);
+  max-width: 320px;
+}
+#toast.show { display: flex; }
+#toast i { font-size: 16px; }
+
+/* scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+</style>
 </head>
+
 <body>
-  <h1>MAN360 — em construção</h1>
+
+<!-- SIDEBAR -->
+<nav class="sidebar" id="sb">
+  <div class="sb-head">
+    <div class="sb-logo">M3</div>
+    <span class="sb-brand">MAN360</span>
+    <div class="sb-toggle" onclick="toggleSB()" aria-label="Expandir menu">
+      <i class="ti ti-menu-2"></i>
+    </div>
+  </div>
+
+  <div class="nav-item" title="Dashboard"><i class="ti ti-layout-dashboard"></i><span>Dashboard</span></div>
+  <div class="nav-item" title="Ordens de Serviço"><i class="ti ti-clipboard-list"></i><span>Ordens de Serviço</span></div>
+  <div class="nav-item active" title="Programação Semanal"><i class="ti ti-calendar-week"></i><span>Prog. Semanal</span></div>
+  <div class="nav-item" title="Apontamentos"><i class="ti ti-clock"></i><span>Apontamentos</span></div>
+  <div class="sb-sep"></div>
+  <div class="nav-item" title="Pré-Ordens"><i class="ti ti-file-plus"></i><span>Pré-Ordens</span></div>
+  <div class="nav-item" title="Materiais"><i class="ti ti-package"></i><span>Materiais</span></div>
+  <div class="sb-sep"></div>
+  <div class="nav-item" title="Importar dados"><i class="ti ti-upload"></i><span>Importar dados</span></div>
+  <div class="nav-item" style="margin-top:auto" title="Configurações"><i class="ti ti-settings"></i><span>Configurações</span></div>
+</nav>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="page-title">
+      <i class="ti ti-calendar-week"></i>
+      Programação Semanal
+    </div>
+    <button class="top-chip" onclick="showToast('Exportação em desenvolvimento','ti-clock')">
+      <i class="ti ti-download"></i> Exportar
+    </button>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- FILTROS -->
+    <div class="filter-bar">
+      <span class="f-label">Equipes</span>
+      <div class="dd-wrap">
+        <div class="dd-btn" onclick="toggleDD('dd-eq')" id="dd-eq-btn">
+          <i class="ti ti-tool" style="font-size:12px"></i>
+          <span id="eq-label">MEC1, CAL1, CAL2, CAL3, CIV1</span>
+          <i class="ti ti-chevron-down arr"></i>
+        </div>
+        <div class="dd-panel" id="dd-eq">
+          <div class="dd-group">Suas áreas</div>
+          <label class="dd-item"><input type="checkbox" value="MEC1" checked onchange="updateEqLabel()"> MEC1 — Mecânica</label>
+          <label class="dd-item"><input type="checkbox" value="CAL1" checked onchange="updateEqLabel()"> CAL1 — Caldeiraria 01</label>
+          <label class="dd-item"><input type="checkbox" value="CAL2" checked onchange="updateEqLabel()"> CAL2 — Fabricação</label>
+          <label class="dd-item"><input type="checkbox" value="CAL3" checked onchange="updateEqLabel()"> CAL3 — Seg. do Trabalho</label>
+          <label class="dd-item"><input type="checkbox" value="CIV1" checked onchange="updateEqLabel()"> CIV1 — Civil</label>
+          <div class="dd-sep"></div>
+          <div class="dd-group">Em breve</div>
+          <label class="dd-item off"><input type="checkbox" disabled> ELE1 — Elétrica</label>
+          <label class="dd-item off"><input type="checkbox" disabled> AUT1 — Automação</label>
+          <label class="dd-item off"><input type="checkbox" disabled> INS1 — Instrumentação</label>
+          <label class="dd-item off"><input type="checkbox" disabled> ISP1 — Insp. Rotativos</label>
+        </div>
+      </div>
+
+      <span class="f-label" style="margin-left:6px">Semana</span>
+      <div class="dd-wrap">
+        <div class="dd-btn" onclick="toggleDD('dd-sem')" style="min-width:200px" id="dd-sem-btn">
+          <i class="ti ti-calendar" style="font-size:12px"></i>
+          <span id="sem-label">Sem 8 — 18/05 a 24/05/26</span>
+          <i class="ti ti-chevron-down arr"></i>
+        </div>
+        <div class="dd-panel" id="dd-sem">
+          <div class="dd-group">Safra 2026</div>
+          <label class="dd-item"><input type="checkbox" name="sem" value="5"> Sem 5 — 27/04 a 03/05</label>
+          <label class="dd-item"><input type="checkbox" name="sem" value="6"> Sem 6 — 04/05 a 10/05</label>
+          <label class="dd-item"><input type="checkbox" name="sem" value="7"> Sem 7 — 11/05 a 17/05</label>
+          <label class="dd-item"><input type="checkbox" name="sem" value="8" checked> Sem 8 — 18/05 a 24/05</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- MÉTRICAS -->
+    <div class="metrics">
+      <div class="metric">
+        <div class="m-label">H-h programadas</div>
+        <div class="m-val" style="color:var(--yellow)">1.363h</div>
+        <div class="m-sub">5 equipes · semana atual</div>
+      </div>
+      <div class="metric">
+        <div class="m-label">Aderência global</div>
+        <div class="m-val" style="color:var(--red-l)">71%</div>
+        <div class="m-sub">↓ 4% vs semana anterior</div>
+      </div>
+      <div class="metric">
+        <div class="m-label">Pré-OS abertas</div>
+        <div class="m-val" style="color:var(--yellow)">23</div>
+        <div class="m-sub">aguardando planejador</div>
+      </div>
+      <div class="metric">
+        <div class="m-label">Tempo médio Pré → OS</div>
+        <div class="m-val" style="color:var(--green)">2,3 dias</div>
+        <div class="m-sub">no período selecionado</div>
+      </div>
+    </div>
+
+    <!-- GRÁFICOS LINHA 1 -->
+    <div class="charts-row">
+      <div class="card">
+        <div class="card-title">H-h programado</div>
+        <div class="chart-wrap" style="height:150px"><canvas id="c1" role="img" aria-label="H-h programado por equipe"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Aderência da Programação <span>meta: 80%</span></div>
+        <div class="chart-wrap" style="height:150px"><canvas id="c2" role="img" aria-label="Aderência da programação por equipe"></canvas></div>
+      </div>
+    </div>
+
+    <!-- GRÁFICOS LINHA 2 -->
+    <div class="charts-row">
+      <div class="card">
+        <div class="card-title">Aderência global <span>semana a semana</span></div>
+        <div class="chart-wrap" style="height:135px"><canvas id="c3" role="img" aria-label="Aderência global por semana"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Eficiência do Planejamento <span>previsto × realizado</span></div>
+        <div class="chart-wrap" style="height:135px"><canvas id="c4" role="img" aria-label="Eficiência do planejamento por equipe"></canvas></div>
+      </div>
+    </div>
+
+    <!-- DISTRIBUIÇÃO H-h FULL WIDTH -->
+    <div class="card">
+      <div class="card-title">
+        Distribuição de H-h por equipe
+        <span style="display:flex;align-items:center;gap:10px;margin-left:8px;">
+          <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:2px;background:var(--red-l);display:inline-block"></span>MCU</span>
+          <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:2px;background:var(--green);display:inline-block"></span>Dentro da prog.</span>
+          <span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:2px;background:var(--blue);display:inline-block"></span>Fora da prog.</span>
+        </span>
+      </div>
+      <div class="chart-wrap" style="height:150px"><canvas id="c5" role="img" aria-label="Distribuição de H-h por equipe"></canvas></div>
+    </div>
+
+    <!-- PONTOS DE ATENÇÃO + REPROGRAMADAS -->
+    <div class="two-col">
+
+      <div class="card">
+        <div class="card-title"><i class="ti ti-alert-triangle c-red"></i> Pontos de atenção</div>
+        <div class="alert-list">
+          <div class="alert-li">
+            <i class="ti ti-trending-down c-red"></i>
+            <div><strong>CIV1 com aderência de 55%</strong> — abaixo da meta de 80%.</div>
+          </div>
+          <div class="alert-li">
+            <i class="ti ti-pause c-amber"></i>
+            <div><strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · aguardando compra desde sem. 6.</div>
+          </div>
+          <div class="alert-li">
+            <i class="ti ti-clock c-blue"></i>
+            <div><strong>Pré-OS 7707 há 6 dias sem conversão</strong> — média é 2,3 dias · CAL1.</div>
+          </div>
+          <div class="alert-li">
+            <i class="ti ti-chart-bar c-gray"></i>
+            <div><strong>MCU em 18% das H-h</strong> — referência saudável abaixo de 15%.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <i class="ti ti-arrows-right c-amber"></i>
+          Reprogramadas não executadas
+          <span style="margin-left:4px;">6 serviços</span>
+        </div>
+        <div class="alert-list">
+          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">65156</span><span>CAL3 · SSMA adequar ponto condensado · 36h</span></div>
+          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">64534</span><span>CIV1 · Canaleta embebição moenda · 72h</span></div>
+          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">65696</span><span>CIV1 · Concretar piso tratamento caldo · 28h</span></div>
+          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">63845</span><span>CAL1 · Alinhar raspas filtro rotativo 3 · 8h</span></div>
+          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">66409</span><span>CAL1 · Soldar cantoneira travamento PEIP · 10h</span></div>
+          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">64915</span><span>CAL1 · Vazamento tanque caldo dosado · 8h</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- IMPORTAR DADOS -->
+    <div class="card">
+      <div class="card-title"><i class="ti ti-upload" style="color:var(--yellow)"></i> Importar dados</div>
+      <div class="import-body">
+
+        <div class="dropzone" id="dz"
+          ondragover="event.preventDefault();this.classList.add('over')"
+          ondragleave="this.classList.remove('over')"
+          ondrop="handleDrop(event)"
+          onclick="document.getElementById('file-input').click()">
+          <i class="ti ti-cloud-upload"></i>
+          <div class="dz-label">Arraste o arquivo aqui</div>
+          <div class="dz-sub">ou clique para selecionar</div>
+          <input type="file" id="file-input" style="display:none" accept=".xlsx,.xls,.csv,.pdf" onchange="handleFile(this.files[0])">
+        </div>
+
+        <div class="import-types">
+          <div class="itype"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="ext">.xlsx</span>Programação semanal, OS, apontamentos</div>
+          <div class="itype"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="ext">.xls</span>Arquivos legados do PIMS MI</div>
+          <div class="itype"><i class="ti ti-file-text" style="color:var(--blue)"></i><span class="ext">.csv</span>Exportações diretas do sistema</div>
+          <div class="itype"><i class="ti ti-file-type-pdf" style="color:var(--red-l)"></i><span class="ext">.pdf</span>Prog. semanais antigas (leitura automática)</div>
+        </div>
+
+      </div>
+
+      <div class="import-history">
+        <div class="hist-title">Importações recentes</div>
+        <div id="hist-list">
+          <div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="hist-name">bdd_os_mec.xlsx</span><span class="hist-date">hoje 11:03</span><span class="hist-badge hb-ok">OK · 312 registros</span></div>
+          <div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="hist-name">bdd_progsem.xls</span><span class="hist-date">hoje 10:58</span><span class="hist-badge hb-ok">OK · 87 registros</span></div>
+          <div class="hist-row"><i class="ti ti-file-type-pdf" style="color:var(--red-l)"></i><span class="hist-name">Programacao_Semanal_6.pdf</span><span class="hist-date">ontem 16:22</span><span class="hist-badge hb-ok">OK · 149 registros</span></div>
+          <div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="hist-name">bdd_apontamento.xls</span><span class="hist-date">ontem 15:47</span><span class="hist-badge hb-err">Erro · verificar formato</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast">
+  <i class="ti ti-info-circle" id="toast-icon"></i>
+  <span id="toast-msg"></span>
+</div>
+
+<script>
+/* ── CONFIG SUPABASE ──
+   Para migrar para outra hospedagem, altere apenas estas duas linhas */
+const SUPABASE_URL = 'https://gwejwvsmmogzdpgyaggf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3ZWp3dnNtbW9nemRwZ3lhZ2dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NTU0NjIsImV4cCI6MjA5NTEzMTQ2Mn0.HgsOjYyHTOiCtjblADpCcwi7SNkK17jjMTdG4Z7H8Uc';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/* ── SIDEBAR ── */
+function toggleSB() {
+  document.getElementById('sb').classList.toggle('open');
+}
+
+/* ── DROPDOWNS ── */
+function toggleDD(id) {
+  document.querySelectorAll('.dd-panel').forEach(p => {
+    if (p.id !== id) p.classList.remove('show');
+  });
+  document.getElementById(id).classList.toggle('show');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.dd-wrap')) {
+    document.querySelectorAll('.dd-panel').forEach(p => p.classList.remove('show'));
+  }
+});
+
+function updateEqLabel() {
+  const checked = [...document.querySelectorAll('#dd-eq input:checked')].map(i => i.value);
+  document.getElementById('eq-label').textContent = checked.length ? checked.join(', ') : 'Nenhuma equipe';
+}
+
+/* ── TOAST ── */
+function showToast(msg, icon='ti-info-circle', duration=3000) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  document.getElementById('toast-icon').className = 'ti ' + icon;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+/* ── IDENTIFICAR ARQUIVO ── */
+function detectFileType(filename, headers) {
+  const name = filename.toLowerCase();
+
+  /* 1. Tentar pelo conteúdo (colunas) — mais confiável */
+  if (headers) {
+    const h = headers.map(c => String(c).toLowerCase());
+    if (h.includes('o.s.') && h.includes('codigo serviço') && h.includes('tipo ativ.'))
+      return { type: 'os', label: 'Ordens de Serviço' };
+    if (h.includes('hr.in') || h.includes('hr.fim') || h.includes('hr.total'))
+      return { type: 'apontamento', label: 'Apontamento de Mão de Obra' };
+    if (h.includes('pré-os') || h.includes('pre-os') || h.includes('situação') && h.includes('os'))
+      return { type: 'preos', label: 'Pré-Ordens de Serviço' };
+    if (h.includes('n° solicitação') || h.includes('código_material'))
+      return { type: 'material', label: 'Solicitação de Material' };
+    if (h.includes('h-h (hr:mi)') || h.includes('equipe:'))
+      return { type: 'progsem', label: 'Programação Semanal' };
+  }
+
+  /* 2. Fallback pelo nome */
+  if (name.includes('os_cal') || name.includes('os_mec') || name.includes('os_civ') || name.includes('os_ele'))
+    return { type: 'os', label: 'Ordens de Serviço' };
+  if (name.includes('apontamento'))
+    return { type: 'apontamento', label: 'Apontamento de Mão de Obra' };
+  if (name.includes('preos') || name.includes('pre_os'))
+    return { type: 'preos', label: 'Pré-Ordens de Serviço' };
+  if (name.includes('progsem') || name.includes('prog_sem') || name.includes('programacao'))
+    return { type: 'progsem', label: 'Programação Semanal' };
+  if (name.includes('material') || name.includes('solic'))
+    return { type: 'material', label: 'Solicitação de Material' };
+
+  return { type: 'unknown', label: 'Tipo não identificado' };
+}
+
+/* ── PROCESSAR ARQUIVO ── */
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dz').classList.remove('over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+}
+
+function handleFile(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  showToast(`Lendo ${file.name}…`, 'ti-loader');
+
+  if (ext === 'pdf') {
+    /* PDF: identificação pelo nome/conteúdo futuro */
+    const detected = detectFileType(file.name, null);
+    addHistRow(file.name, detected.label, true, '— processando PDF');
+    showToast(`PDF identificado: ${detected.label}`, 'ti-file-type-pdf', 4000);
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      /* Pegar primeira linha não vazia como cabeçalho */
+      const headers = rows.find(r => r.some(c => String(c).trim() !== '')) || [];
+      const detected = detectFileType(file.name, headers);
+      const dataRows = rows.filter(r => r.some(c => String(c).trim() !== '')).length;
+
+      addHistRow(file.name, detected.label, true, `OK · ${dataRows} linhas`);
+      showToast(`Identificado: ${detected.label} · ${dataRows} linhas`, 'ti-check', 5000);
+
+      /* Detectar semana se for progsem */
+      if (detected.type === 'progsem') {
+        const allText = rows.flat().join(' ');
+        const semMatch = allText.match(/PROGRAMA[ÇC][AÃ]O\s+SEM\s*(\d+)/i);
+        if (semMatch) showToast(`Semana detectada: Semana ${semMatch[1]}`, 'ti-calendar', 5000);
+      }
+
+    } catch (err) {
+      addHistRow(file.name, 'Erro na leitura', false, 'Erro · verificar formato');
+      showToast('Erro ao ler o arquivo', 'ti-alert-circle', 4000);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function addHistRow(name, type, ok, badge) {
+  const now = new Date();
+  const time = now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
+  const iconColor = name.endsWith('.pdf') ? 'var(--red-l)' : 'var(--green)';
+  const icon = name.endsWith('.pdf') ? 'ti-file-type-pdf' : 'ti-file-spreadsheet';
+  const html = `
+    <div class="hist-row">
+      <i class="ti ${icon}" style="color:${iconColor}"></i>
+      <span class="hist-name" title="${name}">${name}</span>
+      <span class="hist-date">hoje ${time}</span>
+      <span class="hist-badge ${ok?'hb-ok':'hb-err'}">${badge}</span>
+    </div>`;
+  document.getElementById('hist-list').insertAdjacentHTML('afterbegin', html);
+}
+
+/* ── GRÁFICOS ── */
+const YELLOW='#F8C100', GREEN='#1D9E75', RED='#E24B4A', BLUE='#378ADD';
+const eq=['MEC1','CAL1','CAL2','CAL3','CIV1'];
+const prev=[389,220,80,82,91];
+const real=[264,165,64,74,50];
+const adr=[68,75,80,90,55];
+const semVals=[78,82,75,71];
+
+const tickC='rgba(80,80,80,.9)';
+const gridC='rgba(0,0,0,.06)';
+
+/* Plugin: valor acima das barras simples */
+const topLbl = {
+  id:'topLbl',
+  afterDatasetsDraw(chart) {
+    const {ctx} = chart;
+    chart.data.datasets.forEach((ds, di) => {
+      if (ds._noLabel) return;
+      const meta = chart.getDatasetMeta(di);
+      if (meta.hidden) return;
+      meta.data.forEach((bar, i) => {
+        const v = ds.data[i];
+        const lbl = ds._fmt ? ds._fmt(v, i) : String(v);
+        ctx.save();
+        ctx.font = '500 10px IBM Plex Sans, sans-serif';
+        ctx.fillStyle = tickC;
+        ctx.textAlign = 'center';
+        ctx.fillText(lbl, bar.x, bar.y - 5);
+        ctx.restore();
+      });
+    });
+  }
+};
+
+/* Plugin: % acima do par (eficiência) */
+const midPct = {
+  id:'midPct',
+  afterDatasetsDraw(chart) {
+    if (!chart.data._showMid) return;
+    const {ctx} = chart;
+    const m0 = chart.getDatasetMeta(0).data;
+    const m1 = chart.getDatasetMeta(1).data;
+    m0.forEach((b0, i) => {
+      const b1 = m1[i];
+      const midX = (b0.x + b1.x) / 2;
+      const topY = Math.min(b0.y, b1.y) - 7;
+      const pct = Math.round(real[i] / prev[i] * 100);
+      ctx.save();
+      ctx.font = '600 10px IBM Plex Sans, sans-serif';
+      ctx.fillStyle = pct >= 80 ? GREEN : RED;
+      ctx.textAlign = 'center';
+      ctx.fillText(pct + '%', midX, topY);
+      ctx.restore();
+    });
+  }
+};
+
+Chart.register(topLbl, midPct);
+
+const base = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false }, tooltip: {} }
+};
+
+/* C1 — H-h programado */
+new Chart(document.getElementById('c1'), {
+  type: 'bar',
+  data: { labels: eq, datasets: [{ data: prev, backgroundColor: YELLOW, borderRadius: 5, _fmt: v => v+'h' }] },
+  options: { ...base, scales: {
+    x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
+    y: { ticks: { color: tickC, font: { size: 10 }, callback: v => v+'h' }, grid: { color: gridC } }
+  }}
+});
+
+/* C2 — Aderência por equipe */
+new Chart(document.getElementById('c2'), {
+  type: 'bar',
+  data: { labels: eq, datasets: [{ data: adr, backgroundColor: adr.map(v => v>=80?GREEN:RED), borderRadius: 5, _fmt: v => v+'%' }] },
+  options: { ...base, scales: {
+    x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
+    y: { min: 0, max: 100, ticks: { color: tickC, font: { size: 10 }, callback: v => v+'%' }, grid: { color: gridC } }
+  }}
+});
+
+/* C3 — Aderência global */
+new Chart(document.getElementById('c3'), {
+  type: 'bar',
+  data: { labels: ['Sem 5','Sem 6','Sem 7','Sem 8'], datasets: [{ data: semVals, backgroundColor: semVals.map(v=>v>=80?GREEN:RED), borderRadius: 5, _fmt: v => v+'%' }] },
+  options: { ...base, scales: {
+    x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
+    y: { min: 0, max: 100, ticks: { color: tickC, font: { size: 10 }, callback: v => v+'%' }, grid: { color: gridC } }
+  }}
+});
+
+/* C4 — Eficiência planejamento */
+new Chart(document.getElementById('c4'), {
+  type: 'bar',
+  data: {
+    _showMid: true,
+    labels: eq,
+    datasets: [
+      { label: 'Previsto', data: prev, backgroundColor: YELLOW, borderRadius: 5, _noLabel: true },
+      { label: 'Realizado', data: real, backgroundColor: real.map((r,i) => r/prev[i]>=0.8?GREEN:RED), borderRadius: 5, _noLabel: true }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: true, labels: { color: tickC, font: { size: 10 }, boxWidth: 10, boxHeight: 10 } },
+      tooltip: {}
+    },
+    scales: {
+      x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
+      y: { ticks: { color: tickC, font: { size: 10 }, callback: v => v+'h' }, grid: { color: gridC } }
+    }
+  }
+});
+
+/* C5 — Distribuição H-h horizontal empilhado */
+new Chart(document.getElementById('c5'), {
+  type: 'bar',
+  data: {
+    labels: eq,
+    datasets: [
+      { label: 'MCU',               data: [42,30,8,6,10],    backgroundColor: RED,   borderRadius: 0, _noLabel: true },
+      { label: 'Dentro da prog.',   data: [210,140,52,60,42], backgroundColor: GREEN, borderRadius: 0, _noLabel: true },
+      { label: 'Fora da prog.',     data: [137,50,20,16,39],  backgroundColor: BLUE,  borderRadius: 0, _noLabel: true }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    indexAxis: 'y',
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.raw}h` } }
+    },
+    scales: {
+      x: { stacked: true, ticks: { color: tickC, font: { size: 10 }, callback: v => v+'h' }, grid: { color: gridC } },
+      y: { stacked: true, ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } }
+    }
+  }
+});
+</script>
+
 </body>
 </html>
