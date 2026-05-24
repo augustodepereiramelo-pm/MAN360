@@ -10,6 +10,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
 <style>
 /* ── CONFIG ── */
@@ -439,16 +442,19 @@ body {
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="page-title">
-      <i class="ti ti-calendar-week"></i>
-      Programação Semanal
+      <span style="position:relative;display:inline-flex;align-items:center;">
+        <i class="ti ti-calendar-week" style="font-size:22px;"></i>
+        <i class="ti ti-settings" style="font-size:11px;position:absolute;bottom:-2px;right:-5px;background:#1a1a1a;border-radius:50%;padding:1px;color:#1a1a1a;background:var(--yellow);width:13px;height:13px;display:flex;align-items:center;justify-content:center;"></i>
+      </span>
+      <span style="font-size:15px;font-weight:700;letter-spacing:.04em;">PROGRAMAÇÃO SEMANAL</span>
     </div>
-    <button class="top-chip" onclick="showToast('Exportação em desenvolvimento','ti-clock')">
-      <i class="ti ti-download"></i> Exportar
+    <button class="top-chip" onclick="exportarPDF()">
+      <i class="ti ti-download"></i> Exportar PDF
     </button>
   </div>
 
   <!-- CONTENT -->
-  <div class="content">
+  <div class="content" id="conteudo-relatorio">
 
     <!-- FILTROS -->
     <div class="filter-bar">
@@ -483,6 +489,11 @@ body {
           <i class="ti ti-chevron-down arr"></i>
         </div>
         <div class="dd-panel" id="dd-sem">
+          <div style="display:flex;gap:6px;padding:4px 6px 6px;">
+            <button onclick="selectAllSems(true)" style="flex:1;height:24px;font-size:10px;font-family:var(--font);border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--yellow);color:#1a1a1a;cursor:pointer;font-weight:600;">SAFRA (todas)</button>
+            <button onclick="selectAllSems(false)" style="flex:1;height:24px;font-size:10px;font-family:var(--font);border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--dark2);color:var(--text-2);cursor:pointer;">Limpar</button>
+          </div>
+          <div class="dd-sep"></div>
           <div class="dd-group">Safra 2026</div>
           <label class="dd-item"><input type="checkbox" name="sem" value="5"> Sem 5 — 27/04 a 03/05</label>
           <label class="dd-item"><input type="checkbox" name="sem" value="6"> Sem 6 — 04/05 a 10/05</label>
@@ -573,7 +584,7 @@ body {
     </div>
 
     <!-- IMPORTAR DADOS -->
-    <div class="card">
+    <div class="card" id="card-importacao">
       <div class="card-title"><i class="ti ti-upload" style="color:var(--yellow)"></i> Importar dados</div>
       <div class="import-body">
 
@@ -618,6 +629,12 @@ body {
 </div>
 
 <script>
+/* ── CONFIG PDF.js ── */
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
 /* ── CONFIG SUPABASE ──
    Para migrar para outra hospedagem, altere apenas estas duas linhas */
 const SUPABASE_URL = 'https://gwejwvsmmogzdpgyaggf.supabase.co';
@@ -627,6 +644,89 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 /* ── SIDEBAR ── */
 function toggleSB() {
   document.getElementById('sb').classList.toggle('open');
+}
+
+/* ── SAFRA: selecionar/limpar todas as semanas ── */
+function selectAllSems(all) {
+  document.querySelectorAll('[name=sem]').forEach(cb => {
+    cb.checked = all;
+    cb.dispatchEvent(new Event('change'));
+  });
+  if (all) {
+    activeSems = [...document.querySelectorAll('[name=sem]')].map(c => Number(c.value));
+    document.getElementById('sem-label').textContent = 'SAFRA 2026 (todas)';
+  } else {
+    activeSems = [];
+    document.getElementById('sem-label').textContent = 'Nenhuma semana';
+  }
+  updateCharts();
+  document.getElementById('dd-sem').classList.remove('show');
+}
+
+/* ── EXPORTAR PDF A4 ── */
+async function exportarPDF() {
+  showToast('Gerando relatório PDF…', 'ti-loader', 4000);
+
+  /* Esconder card de importação */
+  const cardImp = document.getElementById('card-importacao');
+  const origDisplay = cardImp.style.display;
+  cardImp.style.display = 'none';
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const conteudo  = document.getElementById('conteudo-relatorio');
+
+    const canvas = await html2canvas(conteudo, {
+      scale: 1.5,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const pdf     = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    const pageW   = pdf.internal.pageSize.getWidth();
+    const pageH   = pdf.internal.pageSize.getHeight();
+    const margin  = 10;
+    const usableW = pageW - margin * 2;
+    const usableH = pageH - margin * 2;
+
+    const imgW    = canvas.width;
+    const imgH    = canvas.height;
+    const ratio   = imgW / usableW;
+    const totalH  = imgH / ratio;
+
+    /* Paginar se conteúdo for maior que uma página */
+    let posY = 0;
+    let page  = 0;
+    while (posY < totalH) {
+      if (page > 0) pdf.addPage();
+      pdf.addImage(imgData, 'PNG', margin, margin, usableW,
+        Math.min(usableH, totalH - posY),
+        '', 'FAST',
+        0, -(posY * ratio / usableW * usableW) / ratio * ratio
+      );
+      posY += usableH;
+      page++;
+    }
+
+    /* Rodapé */
+    const sems = activeSems.length ? activeSems.map(s => `Sem ${s}`).join(', ') : 'SAFRA';
+    pdf.setFontSize(8);
+    pdf.setTextColor(150);
+    pdf.text(`MAN360 · Programação Semanal · ${sems} · gerado em ${new Date().toLocaleString('pt-BR')}`,
+      margin, pageH - 4);
+
+    pdf.save(`MAN360_ProgSemanal_${sems.replace(/,\s*/g,'_')}.pdf`);
+    showToast('Relatório gerado com sucesso!', 'ti-check', 4000);
+
+  } catch(err) {
+    console.error(err);
+    showToast('Erro ao gerar PDF: ' + err.message, 'ti-alert-circle', 5000);
+  } finally {
+    cardImp.style.display = origDisplay;
+  }
 }
 
 /* ── DROPDOWNS ── */
@@ -690,9 +790,13 @@ function detectFileType(filename, rows) {
   return { type: 'unknown', label: 'Tipo não identificado' };
 }
 
-/* ── PARSER: PROGRAMAÇÃO SEMANAL (Excel/XLS) ──
+/* ── PARSER: PROGRAMAÇÃO SEMANAL (Excel/XLS e PDF) ──
    Formato TOTVS: blocos por equipe, linha "Equipe: XXX" seguida de serviços */
-function parseProgSemanal(rows) {
+function parseProgSemanal(rows, rawText) {
+  /* Para PDF: usar texto bruto para detectar equipes e serviços */
+  if (rawText) {
+    return parseProgSemanalPDF(rawText);
+  }
   const registros = [];
   let equipeAtual = '';
   let equipeDesc  = '';
@@ -766,6 +870,56 @@ function parseProgSemanal(rows) {
     });
   });
 
+  return { registros, semana, ano, dataInicio, dataFim };
+}
+
+/* ── PARSER PDF: texto bruto do PDF.js ── */
+function parseProgSemanalPDF(text) {
+  const registros = [];
+  let equipeAtual = '', equipeDesc = '';
+  let semana = null, ano = null, dataInicio = null, dataFim = null;
+
+  /* Detectar semana */
+  const mSem = text.match(/SEM\s*(\d+)/i);
+  if (mSem) semana = parseInt(mSem[1]);
+  const mPer = text.match(/In[ií]cio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+  const mFim = text.match(/Fim\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+  if (mPer) { dataInicio = mPer[1]; ano = parseInt(mPer[1].split('/')[2]); }
+  if (mFim)   dataFim   = mFim[1];
+
+  /* Dividir em linhas e processar */
+  const linhas = text.split(/
+/).map(l => l.trim()).filter(Boolean);
+  linhas.forEach(linha => {
+    /* Detectar equipe */
+    const mEq = linha.match(/Equipe:\s*([A-Z0-9]+)\s*[-–]\s*(.+)/i);
+    if (mEq) { equipeAtual = mEq[1].trim(); equipeDesc = mEq[2].trim(); return; }
+
+    /* Detectar serviço: linha começando com número de OS de 5+ dígitos */
+    const mOS = linha.match(/^(\d{5,})\s+(.+)/);
+    if (!mOS || !equipeAtual) return;
+    const os = mOS[1];
+    const resto = mOS[2];
+
+    /* Extrair H-h: número no formato NN.NN no final */
+    const mHH = resto.match(/(\d+[\.,]\d{2})\s*$/);
+    const hh   = mHH ? parseFloat(mHH[1].replace(',','.')) : null;
+    const desc = resto.replace(mHH ? mHH[0] : '', '').trim();
+
+    /* Extrair equipamento: código antes do H-h (padrão: letras+números 2-8 chars) */
+    const partes  = desc.split(/\s+/);
+    const eqCode  = partes.find(p => /^[A-Z]{2,4}\d{2,4}$/i.test(p)) || '';
+    const descFinal = desc.replace(eqCode, '').trim();
+
+    registros.push({
+      semana, ano, data_inicio: dataInicio, data_fim: dataFim,
+      os, descricao: descFinal, equipamento: eqCode,
+      equipe: equipeAtual, equipe_desc: equipeDesc,
+      hh_previsto: hh,
+      data_inicio_serv: '', hora_inicio: '',
+      data_fim_serv:    '', hora_fim:    '',
+    });
+  });
   return { registros, semana, ano, dataInicio, dataFim };
 }
 
@@ -850,8 +1004,40 @@ async function handleFile(file) {
   showToast(`Lendo ${file.name}…`, 'ti-loader');
 
   if (ext === 'pdf') {
-    addHistRow(file.name, 'Programação Semanal (PDF)', true, 'PDF · use o Excel equivalente por ora');
-    showToast('PDFs do TOTVS: por enquanto exporte como Excel. Suporte a PDF chegará em breve.', 'ti-info-circle', 6000);
+    showToast('Lendo PDF do TOTVS…', 'ti-loader', 3000);
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const pdfDoc   = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+      let fullText   = '';
+      for (let p = 1; p <= pdfDoc.numPages; p++) {
+        const page    = await pdfDoc.getPage(p);
+        const textCnt = await page.getTextContent();
+        fullText     += textCnt.items.map(i => i.str).join(' ') + '\n';
+      }
+      /* Converter texto do PDF em linhas simulando linhas de planilha */
+      const linhas = fullText.split('\n').map(l => l.trim()).filter(Boolean);
+      const rows   = linhas.map(l => l.split(/\s{2,}/).map(c => c.trim()));
+      const { registros, semana, ano } = parseProgSemanal(rows, fullText);
+
+      if (!registros.length) {
+        addHistRow(file.name, 'Prog. Semanal PDF', false, 'Erro · nenhum serviço encontrado');
+        showToast('Nenhum serviço extraído do PDF. Tente o Excel equivalente.', 'ti-alert-circle', 6000);
+        return;
+      }
+      const semInfo = semana ? `Semana ${semana}${ano ? ' · ' + ano : ''}` : 'semana não identificada';
+      showToast(`${semInfo} · ${registros.length} serviços encontrados · salvando…`, 'ti-calendar', 4000);
+      const saved = await salvarProgSemanal(registros, file.name);
+      if (saved) {
+        addHistRow(file.name, `Prog. Semanal PDF — ${semInfo}`, true, `OK · ${saved} registros`);
+        showToast(`PDF salvo: ${saved} serviços da ${semInfo}`, 'ti-check', 5000);
+      } else {
+        addHistRow(file.name, 'Prog. Semanal PDF', false, 'Erro ao salvar');
+      }
+    } catch(err) {
+      console.error(err);
+      addHistRow(file.name, 'Prog. Semanal PDF', false, 'Erro · ' + err.message);
+      showToast('Erro ao ler PDF: ' + err.message, 'ti-alert-circle', 6000);
+    }
     return;
   }
 
@@ -1260,3 +1446,4 @@ updateCharts();
 
 </body>
 </html>
+
