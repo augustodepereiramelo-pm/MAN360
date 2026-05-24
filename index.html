@@ -1022,49 +1022,41 @@ function parseOS(rows) {
 /* -- PARSER PRE-ORDENS -- */
 function parsePreOS(rows) {
   const registros=[];
-  /* Encontrar cabecalho: linha que tem "Pre-OS" ou "Pre" + numero de OS */
-  let hdrIdx = rows.findIndex(r => {
-    const joined = r.map(c=>String(c||'').toLowerCase()).join(' ');
-    return joined.includes('pre') && (joined.includes('situa') || joined.includes('os'));
-  });
-  /* Fallback: primeira linha que tem numeros de 4+ digitos na col 0 */
-  if(hdrIdx < 0){
-    hdrIdx = rows.findIndex(r => /^\d{4,}$/.test(String(r[0]||'').trim())) - 1;
-  }
-  if(hdrIdx < 0) hdrIdx = 2; /* bdd_preos tem cabecalho na linha 3 (idx 2) */
-  const hdr = rows[hdrIdx].map(c=>String(c||'').toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g,'').trim());
-  const col = name => {
-    const idx = hdr.findIndex(h=>h.includes(name));
-    return idx;
-  };
-  /* Mapear colunas pelo conteudo */
-  const iPreOS   = col('pre-os') >= 0 ? col('pre-os') : col('pre') >= 0 ? col('pre') : 0;
-  const iSit     = col('situa') >= 0 ? col('situa') : 1;
-  const iOS      = col('os') >= 0 && col('os') !== iPreOS ? col('os') : 2;
-  const iDataCom = col('data comun') >= 0 ? col('data comun') : 3;
-  const iHoraCom = col('hora comun') >= 0 ? col('hora comun') : 4;
-  const iDataInc = col('data inclu') >= 0 ? col('data inclu') : 5;
-  const iHoraInc = col('hora inclu') >= 0 ? col('hora inclu') : 6;
-  const iUser    = col('usu') >= 0 ? col('usu') : 7;
-  const iDesc    = col('descri') >= 0 ? col('descri') : 8;
-  const iMis     = col('mis') >= 0 ? col('mis') : 9;
-
+  /* Normalizar string removendo acentos */
+  const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  /* Encontrar linha de cabecalho */
+  let hdrIdx=rows.findIndex(r=>r.some(c=>norm(c).includes('pre-os')&&norm(c).length<10));
+  if(hdrIdx<0) hdrIdx=rows.findIndex(r=>norm(r[0]).includes('pre-os'));
+  if(hdrIdx<0) hdrIdx=2; /* fallback: linha 3 */
+  const hdr=rows[hdrIdx].map(c=>norm(c));
+  /* Mapear colunas com busca exata primeiro, depois parcial */
+  const colExact=name=>hdr.findIndex(h=>h===name);
+  const colPart =name=>hdr.findIndex(h=>h.includes(name));
+  const iPreOS  =colExact('pre-os')>=0?colExact('pre-os'):0;
+  const iSit    =colExact('situacao')>=0?colExact('situacao'):colPart('situa');
+  const iOS     =colExact('os')>=0?colExact('os'):2; /* 'os' exato, nao 'pre-os' */
+  const iDataCom=colPart('data comun')>=0?colPart('data comun'):3;
+  const iHoraCom=colPart('hora comun')>=0?colPart('hora comun'):4;
+  const iDataInc=colPart('data inclu')>=0?colPart('data inclu'):5;
+  const iHoraInc=colPart('hora inclu')>=0?colPart('hora inclu'):6;
+  const iUser   =colExact('usuario')>=0?colExact('usuario'):colPart('usu')>=0?colPart('usu'):7;
+  const iDesc   =colPart('descri')>=0?colPart('descri'):8;
+  const iMis    =colExact('mis')>=0?colExact('mis'):colPart('mis')>=0?colPart('mis'):9;
   rows.slice(hdrIdx+1).forEach(row=>{
-    const g = i => i>=0&&i<row.length ? str(row[i]) : '';
-    const preOS = g(iPreOS);
-    if(!preOS || !/^\d+$/.test(preOS)) return;
+    const g=i=>i>=0&&i<row.length?str(row[i]):'';
+    const preOS=g(iPreOS);
+    if(!preOS||!/^\d+$/.test(preOS.trim())) return;
     registros.push({
-      pre_os:           preOS,
-      situacao:         g(iSit)||null,
-      os:               g(iOS)||null,
-      data_comunicacao: g(iDataCom)||null,
-      hora_comunicacao: g(iHoraCom)||null,
-      data_inclusao:    g(iDataInc)||null,
-      hora_inclusao:    g(iHoraInc)||null,
-      usuario:          g(iUser)||null,
+      pre_os:         preOS.trim(),
+      situacao:       g(iSit)||null,
+      os:             g(iOS)||null,
+      data_comunicacao:g(iDataCom)||null,
+      hora_comunicacao:g(iHoraCom)||null,
+      data_inclusao:  g(iDataInc)||null,
+      hora_inclusao:  g(iHoraInc)||null,
+      usuario:        g(iUser)||null,
       descricao_servico:g(iDesc).slice(0,300),
-      mis:              g(iMis).slice(0,50),
+      mis:            g(iMis).slice(0,50),
     });
   });
   return registros;
