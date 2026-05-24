@@ -53,7 +53,7 @@ body {
 /* ── SIDEBAR ── */
 .sidebar {
   width: var(--sidebar-w);
-  background: var(--dark);
+  background: #2e2e2e;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -159,10 +159,11 @@ body {
 }
 
 .page-title {
-  font-size: 13px; font-weight: 500;
-  color: var(--text);
+  font-size: 13px; font-weight: 600;
+  color: var(--yellow);
   flex: 1;
   display: flex; align-items: center; gap: 8px;
+  letter-spacing: .02em;
 }
 .page-title i { color: var(--yellow); font-size: 16px; }
 
@@ -495,12 +496,12 @@ body {
     <div class="metrics">
       <div class="metric">
         <div class="m-label">H-h programadas</div>
-        <div class="m-val" style="color:var(--yellow)">1.363h</div>
+        <div class="m-val" id="m-hh" style="color:var(--yellow)">1.363h</div>
         <div class="m-sub">5 equipes · semana atual</div>
       </div>
       <div class="metric">
         <div class="m-label">Aderência global</div>
-        <div class="m-val" style="color:var(--red-l)">71%</div>
+        <div class="m-val" id="m-adr" style="color:var(--red-l)">71%</div>
         <div class="m-sub">↓ 4% vs semana anterior</div>
       </div>
       <div class="metric">
@@ -668,6 +669,7 @@ document.addEventListener('click', e => {
 function updateEqLabel() {
   const checked = [...document.querySelectorAll('#dd-eq input:checked')].map(i => i.value);
   document.getElementById('eq-label').textContent = checked.length ? checked.join(', ') : 'Nenhuma equipe';
+  updateCharts();
 }
 
 /* ── TOAST ── */
@@ -727,10 +729,9 @@ function handleFile(file) {
   showToast(`Lendo ${file.name}…`, 'ti-loader');
 
   if (ext === 'pdf') {
-    /* PDF: identificação pelo nome/conteúdo futuro */
     const detected = detectFileType(file.name, null);
-    addHistRow(file.name, detected.label, true, '— processando PDF');
-    showToast(`PDF identificado: ${detected.label}`, 'ti-file-type-pdf', 4000);
+    addHistRow(file.name, detected.label, true, 'PDF · leitura manual necessária');
+    showToast(`PDF recebido — extração automática de PDF chegará em breve. Por enquanto use a planilha Excel equivalente.`, 'ti-info-circle', 6000);
     return;
   }
 
@@ -779,13 +780,124 @@ function addHistRow(name, type, ok, badge) {
   document.getElementById('hist-list').insertAdjacentHTML('afterbegin', html);
 }
 
-/* ── GRÁFICOS ── */
+/* ── DADOS BASE (fictícios por semana e equipe) ── */
 const YELLOW='#F8C100', GREEN='#1D9E75', RED='#E24B4A', BLUE='#378ADD';
-const eq=['MEC1','CAL1','CAL2','CAL3','CIV1'];
-const prev=[389,220,80,82,91];
-const real=[264,165,64,74,50];
-const adr=[68,75,80,90,55];
-const semVals=[78,82,75,71];
+
+const ALL_EQ = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
+
+/* Dados por semana: prev, real, adr, mcu, dentro, fora */
+const DATA_SEM = {
+  5: { prev:[350,200,75,70,85], real:[280,155,65,63,60], adr:[80,78,87,90,71], mcu:[35,25,7,5,9],  dentro:[200,110,50,50,40], fora:[115,65,18,15,36] },
+  6: { prev:[370,210,78,75,88], real:[305,168,68,68,58], adr:[82,80,87,91,66], mcu:[38,27,8,5,9],  dentro:[210,120,50,55,38], fora:[122,48,18,13,38] },
+  7: { prev:[380,215,79,80,90], real:[285,160,62,70,54], adr:[75,74,78,88,60], mcu:[40,28,7,6,10], dentro:[205,115,50,55,38], fora:[130,47,19,14,38] },
+  8: { prev:[389,220,80,82,91], real:[264,165,64,74,50], adr:[68,75,80,90,55], mcu:[42,30,8,6,10], dentro:[210,140,52,60,42], fora:[137,50,20,16,39] },
+};
+const SEM_LABELS = { 5:'Sem 5', 6:'Sem 6', 7:'Sem 7', 8:'Sem 8' };
+
+/* Estado atual dos filtros */
+let activeSems = [8];
+let activeEqs  = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
+
+/* Ouvir mudanças de semana */
+document.querySelectorAll('[name=sem]').forEach(cb => {
+  cb.addEventListener('change', () => {
+    activeSems = [...document.querySelectorAll('[name=sem]:checked')].map(c => Number(c.value));
+    if (!activeSems.length) activeSems = [8];
+    const lbl = activeSems.map(s => SEM_LABELS[s]).join(', ');
+    document.getElementById('sem-label').textContent = lbl;
+    updateCharts();
+  });
+});
+
+/* Agregar dados das semanas selecionadas para as equipes ativas */
+function getAggregated() {
+  const eqIdx = activeEqs.map(e => ALL_EQ.indexOf(e)).filter(i => i >= 0);
+  const labels = activeEqs;
+
+  /* Soma/média por semana */
+  let prev=[], real=[], adr=[], mcu=[], dentro=[], fora=[];
+  eqIdx.forEach(ei => {
+    let sp=0,sr=0,sa=0,sm=0,sd=0,sf=0,count=0;
+    activeSems.forEach(s => {
+      const d = DATA_SEM[s];
+      if(!d) return;
+      sp += d.prev[ei]; sr += d.real[ei];
+      sm += d.mcu[ei];  sd += d.dentro[ei]; sf += d.fora[ei];
+      sa += d.adr[ei];  count++;
+    });
+    prev.push(sp); real.push(sr);
+    adr.push(count ? Math.round(sa/count) : 0);
+    mcu.push(sm); dentro.push(sd); fora.push(sf);
+  });
+
+  /* Aderência global por semana (só semanas ativas) */
+  const semLabels=[], semVals=[];
+  [5,6,7,8].forEach(s => {
+    if(!DATA_SEM[s]) return;
+    const d = DATA_SEM[s];
+    const totalPrev = eqIdx.reduce((a,i)=>a+d.prev[i],0);
+    const totalReal = eqIdx.reduce((a,i)=>a+d.real[i],0);
+    semLabels.push(SEM_LABELS[s]);
+    semVals.push(totalPrev ? Math.round(totalReal/totalPrev*100) : 0);
+  });
+
+  /* Métricas do card */
+  const totalPrev  = prev.reduce((a,b)=>a+b,0);
+  const totalReal  = real.reduce((a,b)=>a+b,0);
+  const globalAdr  = totalPrev ? Math.round(totalReal/totalPrev*100) : 0;
+
+  return { labels, prev, real, adr, mcu, dentro, fora, semLabels, semVals, totalPrev, globalAdr };
+}
+
+/* Referências dos charts */
+let charts = {};
+
+function updateCharts() {
+  activeEqs = [...document.querySelectorAll('#dd-eq input:checked')].map(i => i.value);
+  const d = getAggregated();
+
+  /* Atualizar métricas */
+  document.getElementById('m-hh').textContent   = d.totalPrev.toLocaleString('pt-BR') + 'h';
+  document.getElementById('m-adr').textContent  = d.globalAdr + '%';
+  document.getElementById('m-adr').style.color  = d.globalAdr >= 80 ? GREEN : RED;
+
+  /* C1 — H-h programado */
+  charts.c1.data.labels = d.labels;
+  charts.c1.data.datasets[0].data = d.prev;
+  charts.c1.update();
+
+  /* C2 — Aderência */
+  charts.c2.data.labels = d.labels;
+  charts.c2.data.datasets[0].data = d.adr;
+  charts.c2.data.datasets[0].backgroundColor = d.adr.map(v => v>=80?GREEN:RED);
+  charts.c2.update();
+
+  /* C3 — Aderência global */
+  charts.c3.data.labels = d.semLabels;
+  charts.c3.data.datasets[0].data = d.semVals;
+  charts.c3.data.datasets[0].backgroundColor = d.semVals.map(v => v>=80?GREEN:RED);
+  charts.c3.update();
+
+  /* C4 — Eficiência */
+  charts.c4.data.labels = d.labels;
+  charts.c4.data.datasets[0].data = d.prev;
+  charts.c4.data.datasets[1].data = d.real;
+  charts.c4.data.datasets[1].backgroundColor = d.real.map((r,i)=>r/d.prev[i]>=0.8?GREEN:RED);
+  charts.c4._realData = d.real;
+  charts.c4._prevData = d.prev;
+  charts.c4.update();
+
+  /* C5 — Distribuição */
+  charts.c5.data.labels = d.labels;
+  charts.c5.data.datasets[0].data = d.mcu;
+  charts.c5.data.datasets[1].data = d.dentro;
+  charts.c5.data.datasets[2].data = d.fora;
+  charts.c5.update();
+}
+
+/* ── DADOS INICIAIS ── */
+const eq   = ALL_EQ;
+const { prev, real, adr, semVals } = getAggregated();
 
 const tickC='rgba(80,80,80,.9)';
 const gridC='rgba(0,0,0,.06)';
@@ -825,7 +937,9 @@ const midPct = {
       const b1 = m1[i];
       const midX = (b0.x + b1.x) / 2;
       const topY = Math.min(b0.y, b1.y) - 7;
-      const pct = Math.round(real[i] / prev[i] * 100);
+      const rData = chart._prevData || prev;
+      const pData = chart._realData || real;
+      const pct = rData[i] ? Math.round((pData[i]||0) / rData[i] * 100) : 0;
       ctx.save();
       ctx.font = '600 10px IBM Plex Sans, sans-serif';
       ctx.fillStyle = pct >= 80 ? GREEN : RED;
@@ -844,7 +958,7 @@ const base = {
 };
 
 /* C1 — H-h programado */
-new Chart(document.getElementById('c1'), {
+charts.c1 = new Chart(document.getElementById('c1'), {
   type: 'bar',
   data: { labels: eq, datasets: [{ data: prev, backgroundColor: YELLOW, borderRadius: 5, _fmt: v => v+'h' }] },
   options: { ...base, scales: {
@@ -854,7 +968,7 @@ new Chart(document.getElementById('c1'), {
 });
 
 /* C2 — Aderência por equipe */
-new Chart(document.getElementById('c2'), {
+charts.c2 = new Chart(document.getElementById('c2'), {
   type: 'bar',
   data: { labels: eq, datasets: [{ data: adr, backgroundColor: adr.map(v => v>=80?GREEN:RED), borderRadius: 5, _fmt: v => v+'%' }] },
   options: { ...base, scales: {
@@ -864,7 +978,7 @@ new Chart(document.getElementById('c2'), {
 });
 
 /* C3 — Aderência global */
-new Chart(document.getElementById('c3'), {
+charts.c3 = new Chart(document.getElementById('c3'), {
   type: 'bar',
   data: { labels: ['Sem 5','Sem 6','Sem 7','Sem 8'], datasets: [{ data: semVals, backgroundColor: semVals.map(v=>v>=80?GREEN:RED), borderRadius: 5, _fmt: v => v+'%' }] },
   options: { ...base, scales: {
@@ -874,14 +988,14 @@ new Chart(document.getElementById('c3'), {
 });
 
 /* C4 — Eficiência planejamento */
-new Chart(document.getElementById('c4'), {
+charts.c4 = new Chart(document.getElementById('c4'), {
   type: 'bar',
   data: {
     _showMid: true,
     labels: eq,
     datasets: [
-      { label: 'Previsto', data: prev, backgroundColor: YELLOW, borderRadius: 5, _noLabel: true },
-      { label: 'Realizado', data: real, backgroundColor: real.map((r,i) => r/prev[i]>=0.8?GREEN:RED), borderRadius: 5, _noLabel: true }
+      { label: 'Previsto',  data: [...prev], backgroundColor: YELLOW, borderRadius: 5, _noLabel: true },
+      { label: 'Realizado', data: [...real], backgroundColor: real.map((r,i) => r/prev[i]>=0.8?GREEN:RED), borderRadius: 5, _noLabel: true }
     ]
   },
   options: {
@@ -898,7 +1012,7 @@ new Chart(document.getElementById('c4'), {
 });
 
 /* C5 — Distribuição H-h horizontal empilhado */
-new Chart(document.getElementById('c5'), {
+charts.c5 = new Chart(document.getElementById('c5'), {
   type: 'bar',
   data: {
     labels: eq,
