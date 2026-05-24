@@ -1089,9 +1089,9 @@ function parseApontamento(rows) {
       }
     }
     registros.push({
-      data_apontamento:dataAtual, cracha:cracha, nome_funcionario:nome.slice(0,100),
+      data_apontamento:dataAtual||'', cracha:cracha||'', nome_funcionario:nome.slice(0,100),
       os:os, codigo_servico:cells[4]||null, descricao_servico:descricao.slice(0,200),
-      hora_inicio:hIni, hora_fim:hFim, hh_total:hhTotal,
+      hora_inicio:hIni||'00:00', hora_fim:hFim||'00:00', hh_total:hhTotal,
       tipo_atividade:cells[5]||null, equipe:equipe||null,
     });
   });
@@ -1110,6 +1110,7 @@ async function salvarNoBanco(tabela, registros, conflictCols) {
       /* Upsert: atualiza se ja existe pela chave unica, insere se nao existe */
       result=await sb.from(tabela).upsert(lote,{onConflict:conflictCols,ignoreDuplicates:false});
     } else {
+      /* Sem conflictCols: upsert ignorando duplicatas */
       result=await sb.from(tabela).upsert(lote,{ignoreDuplicates:true});
     }
     if(result.error){
@@ -1206,7 +1207,7 @@ async function handleFile(file) {
         const regs=parseApontamento(rows);
         if(!regs.length){ addHistRow(file.name,det.label,false,'0 apontamentos encontrados'); showToast('Nenhum apontamento encontrado','ti-alert-circle',5000); return; }
         showToast(regs.length+' apontamentos . salvando...','ti-loader',3000);
-        saved=await salvarNoBanco('apontamentos',regs,'cracha,data_apontamento,hora_fim,os');
+        saved=await salvarNoBanco('apontamentos',regs,'cracha,data_apontamento,hora_inicio,os');
         if(saved){ addHistRow(file.name,det.label,true,'OK . '+saved+' apontamentos'); showToast('Salvo: '+saved+' apontamentos','ti-check',5000); }
         else addHistRow(file.name,det.label,false,'Erro ao salvar');
 
