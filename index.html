@@ -625,27 +625,23 @@ body {
 <script>
 /* ===============================================
    MAN360 - Programacao Semanal
-   Config: altere so estas 2 linhas para migrar
+   Para migrar: altere so estas 2 linhas
    =============================================== */
 const SUPABASE_URL = 'https://gwejwvsmmogzdpgyaggf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3ZWp3dnNtbW9nemRwZ3lhZ2dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NTU0NjIsImV4cCI6MjA5NTEzMTQ2Mn0.HgsOjYyHTOiCtjblADpCcwi7SNkK17jjMTdG4Z7H8Uc';
 let sb = null;
-try {
-  sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-} catch(e) {
-  console.warn('Supabase nao disponivel - modo offline:', e.message);
-}
+try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }
+catch(e) { console.warn('Supabase offline:', e.message); }
 
-/* -- ESTADO GLOBAL -- */
-const ALL_EQ  = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
-let activeSems = [];
-let activeEqs  = [...ALL_EQ];
-let dadosPorSem = {};   /* { 8: { MEC1: {prev,real,adr,mcu,dentro,fora}, ... }, ... } */
+/* -- ESTADO -- */
+const ALL_EQ   = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
+let activeSems  = [];
+let activeEqs   = [...ALL_EQ];
+let dadosPorSem = {};
 let semsDisponiveis = [];
 
 /* -- UTILITARIOS -- */
-function toggleSB() { document.getElementById('sb').classList.toggle('open'); }
-
+function toggleSB()  { document.getElementById('sb').classList.toggle('open'); }
 function toggleDD(id) {
   document.querySelectorAll('.dd-panel').forEach(p => { if(p.id!==id) p.classList.remove('show'); });
   document.getElementById(id).classList.toggle('show');
@@ -653,543 +649,554 @@ function toggleDD(id) {
 document.addEventListener('click', e => {
   if(!e.target.closest('.dd-wrap')) document.querySelectorAll('.dd-panel').forEach(p=>p.classList.remove('show'));
 });
-
-function showBanner(msg, show) {
-  const b = document.getElementById('banner-status');
-  const m = document.getElementById('banner-msg');
-  if(b && m) {
-    b.style.display = show ? 'flex' : 'none';
-    m.textContent = msg || '';
-  }
-}
-
-function showToast(msg, icon, duration) {
-  icon = icon || 'ti-info-circle';
-  duration = duration || 3500;
-  const t = document.getElementById('toast');
-  document.getElementById('toast-msg').textContent = msg;
-  document.getElementById('toast-icon').className = 'ti ' + icon;
+function showToast(msg, icon, dur) {
+  icon = icon||'ti-info-circle'; dur = dur||3500;
+  const t=document.getElementById('toast');
+  document.getElementById('toast-msg').textContent=msg;
+  document.getElementById('toast-icon').className='ti '+icon;
   t.classList.add('show');
-  setTimeout(function(){ t.classList.remove('show'); }, duration);
+  setTimeout(()=>t.classList.remove('show'), dur);
 }
+function showBanner(msg, show) {
+  const b=document.getElementById('banner-status');
+  const m=document.getElementById('banner-msg');
+  if(b&&m){ b.style.display=show?'flex':'none'; m.textContent=msg||''; }
+}
+function str(v){ return String(v==null?'':v).trim(); }
 
 /* -- CARREGAR SEMANAS DO SUPABASE -- */
 async function carregarSemanas() {
-  showBanner('Carregando dados do banco...', true);
-
-  if(!sb) {
-    showBanner('Modo offline - exibindo dados de exemplo. Acesse via GitHub Pages para dados reais.', true);
-    return usarDadosFicticios();
-  }
-
+  if(!sb){ showBanner('Modo offline - acesse via GitHub Pages para dados reais.',true); return; }
+  showBanner('Carregando dados...', true);
   try {
-    const { data, error } = await sb
+    const {data,error} = await sb
       .from('programacao_semanal')
-      .select('semana, ano, equipe, hh_previsto')
-      .order('semana', { ascending: true });
-
+      .select('semana,ano,equipe,hh_previsto')
+      .order('semana',{ascending:true});
     if(error) throw error;
-
-    if(!data || !data.length) {
-      showBanner('Banco conectado, mas sem dados importados. Use o campo "Importar dados" abaixo.', true);
-      semsDisponiveis = [];
+    if(!data||!data.length){
+      showBanner('Sem dados importados ainda. Use o campo "Importar dados" abaixo.',true);
+      semsDisponiveis=[];
       renderizarDropdownSemanas();
-      usarDadosFicticios();
       return;
     }
-
-    showBanner('', false);
-
-  /* Agrupar por semana/equipe */
-  const agrupado = {};
-  data.forEach(r => {
-    const s = r.semana;
-    const e = r.equipe;
-    if(!agrupado[s]) agrupado[s] = {};
-    if(!agrupado[s][e]) agrupado[s][e] = { hh: 0, count: 0 };
-    agrupado[s][e].hh    += (r.hh_previsto || 0);
-    agrupado[s][e].count += 1;
-  });
-
-  /* Logar dados recebidos para debug */
-  console.log('Dados do banco:', data.length, 'registros');
-  const semAnos = [...new Set(data.map(r => r.semana + '/' + r.ano))];
-  console.log('Semanas/anos no banco:', semAnos);
-
-  /* Montar dadosPorSem no formato esperado pelos graficos */
-  dadosPorSem = {};
-  Object.keys(agrupado).forEach(s => {
-    s = parseInt(s);
-    dadosPorSem[s] = {};
-    ALL_EQ.forEach(eq => {
-      const info = agrupado[s] && agrupado[s][eq] ? agrupado[s][eq] : { hh: 0 };
-      dadosPorSem[s][eq] = {
-        prev:   Math.round((info.hh || 0) * 100) / 100,
-        real:   0,
-        adr:    0,
-        mcu:    0,
-        dentro: 0,
-        fora:   0,
-      };
+    showBanner('',false);
+    /* Agrupar por semana/equipe */
+    const agrupado={};
+    data.forEach(r=>{
+      const s=r.semana; const e=r.equipe;
+      if(!agrupado[s]) agrupado[s]={};
+      if(!agrupado[s][e]) agrupado[s][e]={hh:0};
+      agrupado[s][e].hh += (parseFloat(r.hh_previsto)||0);
     });
-    console.log('Sem ' + s + ':', JSON.stringify(dadosPorSem[s]));
-  });
-
-    semsDisponiveis = Object.keys(dadosPorSem).map(Number).sort((a,b)=>a-b);
+    dadosPorSem={};
+    Object.keys(agrupado).forEach(s=>{
+      s=parseInt(s);
+      dadosPorSem[s]={};
+      ALL_EQ.forEach(eq=>{
+        dadosPorSem[s][eq]={
+          prev: Math.round((agrupado[s]&&agrupado[s][eq]?agrupado[s][eq].hh:0)*10)/10,
+          real:0, adr:0, mcu:0, dentro:0, fora:0
+        };
+      });
+    });
+    semsDisponiveis=Object.keys(dadosPorSem).map(Number).sort((a,b)=>a-b);
     renderizarDropdownSemanas();
-
-    /* Selecionar a mais recente por padrao */
-    const maisRecente = semsDisponiveis[semsDisponiveis.length - 1];
-    activeSems = [maisRecente];
-    marcarSemana(maisRecente);
+    const ultima=semsDisponiveis[semsDisponiveis.length-1];
+    activeSems=[ultima];
+    marcarSemana(ultima);
     updateCharts();
-
-  } catch(err) {
-    console.error('Erro ao carregar banco:', err);
-    showBanner('Erro ao conectar ao banco. Exibindo dados de exemplo. (' + err.message + ')', true);
-    usarDadosFicticios();
+  } catch(err){
+    console.error('Erro ao carregar:', err);
+    showBanner('Erro ao conectar ao banco: '+err.message, true);
   }
 }
 
-/* -- FALLBACK: dados ficticios quando nao ha banco -- */
-function usarDadosFicticios() {
-  const ficticio = {
-    5:{ MEC1:{prev:350,real:280,adr:80,mcu:35,dentro:200,fora:115}, CAL1:{prev:200,real:155,adr:78,mcu:25,dentro:110,fora:65}, CAL2:{prev:75,real:65,adr:87,mcu:7,dentro:50,fora:18},  CAL3:{prev:70,real:63,adr:90,mcu:5,dentro:50,fora:15},  CIV1:{prev:85,real:60,adr:71,mcu:9,dentro:40,fora:36} },
-    6:{ MEC1:{prev:370,real:305,adr:82,mcu:38,dentro:210,fora:122}, CAL1:{prev:210,real:168,adr:80,mcu:27,dentro:120,fora:48}, CAL2:{prev:78,real:68,adr:87,mcu:8,dentro:50,fora:18},  CAL3:{prev:75,real:68,adr:91,mcu:5,dentro:55,fora:13},  CIV1:{prev:88,real:58,adr:66,mcu:9,dentro:38,fora:38} },
-    7:{ MEC1:{prev:380,real:285,adr:75,mcu:40,dentro:205,fora:130}, CAL1:{prev:215,real:160,adr:74,mcu:28,dentro:115,fora:47}, CAL2:{prev:79,real:62,adr:78,mcu:7,dentro:50,fora:19},  CAL3:{prev:80,real:70,adr:88,mcu:6,dentro:55,fora:14},  CIV1:{prev:90,real:54,adr:60,mcu:10,dentro:38,fora:38} },
-    8:{ MEC1:{prev:389,real:264,adr:68,mcu:42,dentro:210,fora:137}, CAL1:{prev:220,real:165,adr:75,mcu:30,dentro:140,fora:50}, CAL2:{prev:80,real:64,adr:80,mcu:8,dentro:52,fora:20},  CAL3:{prev:82,real:74,adr:90,mcu:6,dentro:60,fora:16},  CIV1:{prev:91,real:50,adr:55,mcu:10,dentro:42,fora:39} },
-  };
-  dadosPorSem = ficticio;
-  semsDisponiveis = [5,6,7,8];
-  renderizarDropdownSemanas();
-  activeSems = [8];
-  marcarSemana(8);
-  updateCharts();
-}
-
-/* -- RENDERIZAR DROPDOWN DE SEMANAS DINAMICAMENTE -- */
+/* -- DROPDOWN SEMANAS -- */
 function renderizarDropdownSemanas() {
-  const panel = document.getElementById('dd-sem');
-  /* Manter botoes SAFRA/Limpar e separador */
-  const btnSafra = panel.querySelector('.btn-safra-wrap');
-  const sep      = panel.querySelector('.dd-sep');
-  const group    = panel.querySelector('.dd-group');
-
-  /* Remover itens antigos */
-  panel.querySelectorAll('label.dd-item').forEach(l => l.remove());
-
-  /* Adicionar semanas dinamicamente */
-  const semNomes = {
-    1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',
-    7:'Jul',8:'Ago',9:'Set',10:'Out',11:'Nov',12:'Dez'
-  };
-
-  semsDisponiveis.forEach(s => {
-    const label = document.createElement('label');
-    label.className = 'dd-item';
-    label.innerHTML = '<input type="checkbox" name="sem" value="' + s + '"> Sem ' + s;
-    label.querySelector('input').addEventListener('change', onSemChange);
-    panel.appendChild(label);
+  const panel=document.getElementById('dd-sem');
+  panel.querySelectorAll('label.dd-item').forEach(l=>l.remove());
+  semsDisponiveis.forEach(s=>{
+    const lbl=document.createElement('label');
+    lbl.className='dd-item';
+    lbl.innerHTML='<input type="checkbox" name="sem" value="'+s+'"> Sem '+s;
+    lbl.querySelector('input').addEventListener('change', onSemChange);
+    panel.appendChild(lbl);
   });
-
-  /* Atualizar label do botao */
   atualizarLabelSem();
 }
-
 function marcarSemana(s) {
-  document.querySelectorAll('[name=sem]').forEach(cb => {
-    cb.checked = (parseInt(cb.value) === s);
-  });
+  document.querySelectorAll('[name=sem]').forEach(cb=>{ cb.checked=(parseInt(cb.value)===s); });
   atualizarLabelSem();
 }
-
 function atualizarLabelSem() {
-  const checked = [...document.querySelectorAll('[name=sem]:checked')].map(c=>parseInt(c.value));
-  activeSems = checked.length ? checked : (semsDisponiveis.length ? [semsDisponiveis[semsDisponiveis.length-1]] : []);
-  const lbl = checked.length === semsDisponiveis.length ? 'SAFRA (todas)' :
-              checked.length === 0 ? 'Nenhuma semana' :
-              checked.map(s=>'Sem '+s).join(', ');
-  document.getElementById('sem-label').textContent = lbl;
+  const checked=[...document.querySelectorAll('[name=sem]:checked')].map(c=>parseInt(c.value));
+  activeSems=checked.length?checked:(semsDisponiveis.length?[semsDisponiveis[semsDisponiveis.length-1]]:[]);
+  const lbl=checked.length===semsDisponiveis.length&&semsDisponiveis.length>0?'SAFRA (todas)':
+            checked.length===0?'Nenhuma semana':checked.map(s=>'Sem '+s).join(', ');
+  document.getElementById('sem-label').textContent=lbl;
 }
-
-function onSemChange() {
-  atualizarLabelSem();
-  updateCharts();
-}
-
+function onSemChange(){ atualizarLabelSem(); updateCharts(); }
 function selectAllSems(all) {
-  document.querySelectorAll('[name=sem]').forEach(cb => { cb.checked = all; });
-  if(!all && semsDisponiveis.length) {
-    const ultimo = semsDisponiveis[semsDisponiveis.length-1];
-    const cb = document.querySelector('[name=sem][value="'+ultimo+'"]');
-    if(cb) cb.checked = true;
+  document.querySelectorAll('[name=sem]').forEach(cb=>{ cb.checked=all; });
+  if(!all&&semsDisponiveis.length){
+    const cb=document.querySelector('[name=sem][value="'+semsDisponiveis[semsDisponiveis.length-1]+'"]');
+    if(cb) cb.checked=true;
   }
-  atualizarLabelSem();
-  updateCharts();
+  atualizarLabelSem(); updateCharts();
   document.getElementById('dd-sem').classList.remove('show');
 }
-
-/* -- FILTRO EQUIPES -- */
 function updateEqLabel() {
-  activeEqs = [...document.querySelectorAll('#dd-eq input:checked')].map(i=>i.value);
-  document.getElementById('eq-label').textContent = activeEqs.length ? activeEqs.join(', ') : 'Nenhuma equipe';
+  activeEqs=[...document.querySelectorAll('#dd-eq input:checked')].map(i=>i.value);
+  document.getElementById('eq-label').textContent=activeEqs.length?activeEqs.join(', '):'Nenhuma equipe';
   updateCharts();
 }
 
-/* -- AGREGACAO DOS DADOS REAIS -- */
+/* -- AGREGACAO -- */
 function getAggregated() {
-  const labels = activeEqs.length ? activeEqs : ALL_EQ;
+  const labels=activeEqs.length?activeEqs:ALL_EQ;
   const prev=[],real=[],adr=[],mcu=[],dentro=[],fora=[];
-
-  labels.forEach(eq => {
-    let sp=0,sr=0,sa=0,sm=0,sd=0,sf=0,count=0;
-    activeSems.forEach(s => {
-      const d = dadosPorSem[s];
-      if(!d || !d[eq]) return;
-      sp += d[eq].prev   || 0;
-      sr += d[eq].real   || 0;
-      sa += d[eq].adr    || 0;
-      sm += d[eq].mcu    || 0;
-      sd += d[eq].dentro || 0;
-      sf += d[eq].fora   || 0;
-      count++;
+  labels.forEach(eq=>{
+    let sp=0,sr=0,sa=0,sm=0,sd=0,sf=0,cnt=0;
+    activeSems.forEach(s=>{
+      const d=dadosPorSem[s]; if(!d||!d[eq]) return;
+      sp+=d[eq].prev||0; sr+=d[eq].real||0; sa+=d[eq].adr||0;
+      sm+=d[eq].mcu||0; sd+=d[eq].dentro||0; sf+=d[eq].fora||0; cnt++;
     });
-    prev.push(sp);
-    real.push(sr);
-    adr.push(count ? Math.round(sa/count) : 0);
-    mcu.push(sm);
-    dentro.push(sd);
-    fora.push(sf);
+    prev.push(sp); real.push(sr); adr.push(cnt?Math.round(sa/cnt):0);
+    mcu.push(sm); dentro.push(sd); fora.push(sf);
   });
-
-  /* Aderencia global por semana */
-  const semLabels=[], semVals=[];
-  semsDisponiveis.forEach(s => {
-    const d = dadosPorSem[s];
-    if(!d) return;
-    let tp=0, tr=0;
-    activeEqs.forEach(eq => {
-      if(d[eq]){ tp += d[eq].prev||0; tr += d[eq].real||0; }
-    });
+  const semLabels=[],semVals=[];
+  semsDisponiveis.forEach(s=>{
+    const d=dadosPorSem[s]; if(!d) return;
+    let tp=0,tr=0;
+    activeEqs.forEach(eq=>{ if(d[eq]){ tp+=d[eq].prev||0; tr+=d[eq].real||0; } });
     semLabels.push('Sem '+s);
-    semVals.push(tp ? Math.round(tr/tp*100) : 0);
+    semVals.push(tp?Math.round(tr/tp*100):0);
   });
-
-  const totalPrev  = prev.reduce((a,b)=>a+b,0);
-  const totalReal  = real.reduce((a,b)=>a+b,0);
-  const globalAdr  = totalPrev ? Math.round(totalReal/totalPrev*100) : 0;
-
+  const totalPrev=prev.reduce((a,b)=>a+b,0);
+  const totalReal=real.reduce((a,b)=>a+b,0);
+  const globalAdr=totalPrev?Math.round(totalReal/totalPrev*100):0;
   return {labels,prev,real,adr,mcu,dentro,fora,semLabels,semVals,totalPrev,globalAdr};
 }
 
-/* -- ALERTAS POR SEMANA (estaticos, baseados em analise) -- */
-const ALERTAS_SEM = {
-  5:{ alertas:[{icon:'ti-trending-down',cls:'c-red',txt:'<strong>CIV1 com aderencia de 71%</strong> - abaixo da meta de 80%.'},{icon:'ti-chart-bar',cls:'c-gray',txt:'<strong>MCU em 14% das H-h</strong> - dentro da faixa saudavel.'}], repr:[{num:'63200',txt:'CAL1 . Reforma caixa decantador . 18h'},{num:'62980',txt:'MEC1 . Substituir rolamento bomba . 8h'}] },
-  6:{ alertas:[{icon:'ti-trending-down',cls:'c-red',txt:'<strong>CIV1 com aderencia de 66%</strong> - abaixo da meta de 80%.'},{icon:'ti-clock',cls:'c-blue',txt:'<strong>Pre-OS 7621 ha 5 dias sem conversao</strong> - CAL1.'}], repr:[{num:'64091',txt:'CIV1 . Instalar canaleta drenos . 70h'},{num:'63845',txt:'CAL1 . Alinhar raspas filtro . 8h'}] },
-  7:{ alertas:[{icon:'ti-trending-down',cls:'c-red',txt:'<strong>CIV1 com aderencia de 60%</strong> - abaixo da meta de 80%.'},{icon:'ti-pause',cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> - CAL3 . 36h.'}], repr:[{num:'65156',txt:'CAL3 . SSMA adequar ponto condensado . 36h'},{num:'64534',txt:'CIV1 . Canaleta embebicao moenda . 72h'},{num:'65696',txt:'CIV1 . Concretar piso tratamento caldo . 28h'},{num:'63845',txt:'CAL1 . Alinhar raspas filtro rotativo 3 . 8h'}] },
-  8:{ alertas:[{icon:'ti-trending-down',cls:'c-red',txt:'<strong>CIV1 com aderencia de 55%</strong> - abaixo da meta de 80%.'},{icon:'ti-pause',cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> - CAL3 . 36h.'},{icon:'ti-clock',cls:'c-blue',txt:'<strong>Pre-OS 7707 ha 6 dias sem conversao</strong> - media 2,3 dias . CAL1.'},{icon:'ti-chart-bar',cls:'c-gray',txt:'<strong>MCU em 18% das H-h</strong> - acima da faixa saudavel (15%).'}], repr:[{num:'65156',txt:'CAL3 . SSMA adequar ponto condensado . 36h'},{num:'64534',txt:'CIV1 . Canaleta embebicao moenda . 72h'},{num:'65696',txt:'CIV1 . Concretar piso tratamento caldo . 28h'},{num:'63845',txt:'CAL1 . Alinhar raspas filtro rotativo 3 . 8h'},{num:'66409',txt:'CAL1 . Soldar cantoneira travamento PEIP . 10h'},{num:'64915',txt:'CAL1 . Vazamento tanque caldo dosado . 8h'}] },
-};
+/* -- ALERTAS (baseados em analise) -- */
+const ALERTAS_SEM={};
 
 /* -- CHARTS -- */
-const YELLOW='#F8C100', GREEN='#1D9E75', RED='#E24B4A', BLUE='#378ADD';
-const tickC='rgba(80,80,80,.9)', gridC='rgba(0,0,0,.06)';
-let charts = {};
-
-const topLbl = {
+const YELLOW='#F8C100',GREEN='#1D9E75',RED='#E24B4A',BLUE='#378ADD';
+const tickC='rgba(80,80,80,.9)',gridC='rgba(0,0,0,.06)';
+let charts={};
+const topLbl={
   id:'topLbl',
-  afterDatasetsDraw(chart) {
+  afterDatasetsDraw(chart){
     const {ctx}=chart;
     chart.data.datasets.forEach((ds,di)=>{
       if(ds._noLabel) return;
-      const meta=chart.getDatasetMeta(di);
-      if(meta.hidden) return;
+      const meta=chart.getDatasetMeta(di); if(meta.hidden) return;
       meta.data.forEach((bar,i)=>{
         const v=ds.data[i];
         const lbl=ds._fmt?ds._fmt(v,i):String(v);
-        ctx.save();
-        ctx.font='500 10px IBM Plex Sans,sans-serif';
-        ctx.fillStyle=tickC;
-        ctx.textAlign='center';
-        ctx.fillText(lbl,bar.x,bar.y-5);
-        ctx.restore();
+        ctx.save(); ctx.font='500 10px IBM Plex Sans,sans-serif';
+        ctx.fillStyle=tickC; ctx.textAlign='center';
+        ctx.fillText(lbl,bar.x,bar.y-5); ctx.restore();
       });
     });
   }
 };
-
-const midPct = {
+const midPct={
   id:'midPct',
-  afterDatasetsDraw(chart) {
+  afterDatasetsDraw(chart){
     if(!chart.data._showMid) return;
     const {ctx}=chart;
     const m0=chart.getDatasetMeta(0).data;
     const m1=chart.getDatasetMeta(1).data;
     m0.forEach((b0,i)=>{
       const b1=m1[i];
-      const midX=(b0.x+b1.x)/2;
-      const topY=Math.min(b0.y,b1.y)-7;
-      const rData=chart.data.datasets[0].data;
-      const pData=chart.data.datasets[1].data;
-      const pct=rData[i]?Math.round((pData[i]||0)/rData[i]*100):0;
-      ctx.save();
-      ctx.font='600 10px IBM Plex Sans,sans-serif';
-      ctx.fillStyle=pct>=80?GREEN:RED;
-      ctx.textAlign='center';
-      ctx.fillText(pct+'%',midX,topY);
-      ctx.restore();
+      const midX=(b0.x+b1.x)/2, topY=Math.min(b0.y,b1.y)-7;
+      const rD=chart.data.datasets[0].data, pD=chart.data.datasets[1].data;
+      const pct=rD[i]?Math.round((pD[i]||0)/rD[i]*100):0;
+      ctx.save(); ctx.font='600 10px IBM Plex Sans,sans-serif';
+      ctx.fillStyle=pct>=80?GREEN:RED; ctx.textAlign='center';
+      ctx.fillText(pct+'%',midX,topY); ctx.restore();
     });
   }
 };
 
-function updateCharts() {
+function updateCharts(){
   if(!Object.keys(charts).length) return;
   activeEqs=[...document.querySelectorAll('#dd-eq input:checked')].map(i=>i.value);
   const d=getAggregated();
-
-  /* Metricas */
   const mHH=document.getElementById('m-hh');
   const mAdr=document.getElementById('m-adr');
-  if(mHH)  mHH.textContent=d.totalPrev.toLocaleString('pt-BR')+'h';
+  if(mHH) mHH.textContent=d.totalPrev.toLocaleString('pt-BR')+'h';
   if(mAdr){ mAdr.textContent=d.globalAdr+'%'; mAdr.style.color=d.globalAdr>=80?GREEN:RED; }
-
   charts.c1.data.labels=d.labels; charts.c1.data.datasets[0].data=d.prev; charts.c1.update();
-  charts.c2.data.labels=d.labels; charts.c2.data.datasets[0].data=d.adr; charts.c2.data.datasets[0].backgroundColor=d.adr.map(v=>v>=80?GREEN:RED); charts.c2.update();
-  charts.c3.data.labels=d.semLabels; charts.c3.data.datasets[0].data=d.semVals; charts.c3.data.datasets[0].backgroundColor=d.semVals.map(v=>v>=80?GREEN:RED); charts.c3.update();
-  charts.c4.data.labels=d.labels; charts.c4.data.datasets[0].data=d.prev; charts.c4.data.datasets[1].data=d.real; charts.c4.data.datasets[1].backgroundColor=d.real.map((r,i)=>r/d.prev[i]>=0.8?GREEN:RED); charts.c4.update();
-  charts.c5.data.labels=d.labels; charts.c5.data.datasets[0].data=d.mcu; charts.c5.data.datasets[1].data=d.dentro; charts.c5.data.datasets[2].data=d.fora; charts.c5.update();
-
-  /* Alertas e reprogramadas */
+  charts.c2.data.labels=d.labels; charts.c2.data.datasets[0].data=d.adr;
+  charts.c2.data.datasets[0].backgroundColor=d.adr.map(v=>v>=80?GREEN:RED); charts.c2.update();
+  charts.c3.data.labels=d.semLabels; charts.c3.data.datasets[0].data=d.semVals;
+  charts.c3.data.datasets[0].backgroundColor=d.semVals.map(v=>v>=80?GREEN:RED); charts.c3.update();
+  charts.c4.data.labels=d.labels; charts.c4.data.datasets[0].data=d.prev;
+  charts.c4.data.datasets[1].data=d.real;
+  charts.c4.data.datasets[1].backgroundColor=d.real.map((r,i)=>d.prev[i]&&r/d.prev[i]>=0.8?GREEN:RED);
+  charts.c4.update();
+  charts.c5.data.labels=d.labels; charts.c5.data.datasets[0].data=d.mcu;
+  charts.c5.data.datasets[1].data=d.dentro; charts.c5.data.datasets[2].data=d.fora; charts.c5.update();
+  /* Alertas */
   const alertasEl=document.getElementById('alertas-body');
   const reprEl=document.getElementById('repr-body');
   const reprCount=document.getElementById('repr-count');
-  if(activeSems.length===1) {
+  if(activeSems.length===1){
     const info=ALERTAS_SEM[activeSems[0]];
-    if(info) {
+    if(info){
       alertasEl.innerHTML=info.alertas.map(a=>'<div class="alert-li"><i class="ti '+a.icon+' '+a.cls+'"></i><div>'+a.txt+'</div></div>').join('');
       reprCount.textContent=info.repr.length+' servico'+(info.repr.length!==1?'s':'');
       reprEl.innerHTML=info.repr.map(r=>'<div class="repr-li"><div class="repr-dot"></div><span class="repr-num">'+r.num+'</span><span>'+r.txt+'</span></div>').join('');
     } else {
-      alertasEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">- sem dados de alertas para esta semana -</div>';
+      const adr_data=getAggregated();
+      const baixos=adr_data.labels.filter((eq,i)=>adr_data.adr[i]>0&&adr_data.adr[i]<80);
+      alertasEl.innerHTML=baixos.length?
+        baixos.map(eq=>'<div class="alert-li"><i class="ti ti-trending-down c-red"></i><div><strong>'+eq+' com aderencia abaixo de 80%</strong></div></div>').join('')+
+        '<div class="alert-li"><i class="ti ti-info-circle c-gray"></i><div>Importe apontamentos para calcular aderencia real</div></div>':
+        '<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">Importe os apontamentos para ver alertas automaticos</div>';
       reprCount.textContent='';
-      reprEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">- sem dados -</div>';
+      reprEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">Importe a programacao semanal para ver servicos reprogramados</div>';
     }
   } else {
-    alertasEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">- selecione uma unica semana -</div>';
-    reprCount.textContent='';
-    reprEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">- selecione uma unica semana -</div>';
+    alertasEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">Selecione uma unica semana para ver alertas</div>';
+    reprCount.textContent=''; reprEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">Selecione uma unica semana</div>';
   }
 }
 
-/* -- IMPORTACAO -- */
+/* ============================================================
+   IMPORTACAO
+   ============================================================ */
+
 function detectFileType(filename, rows) {
-  const name = filename.toLowerCase();
-  /* Pegar primeiras 5 linhas achatadas para analise */
-  const flat   = rows ? rows.slice(0,10).flat().map(c => String(c||'').toLowerCase().trim()) : [];
-  const joined = flat.join(' ');
-
-  /* --- Programacao Semanal --- */
-  if (flat.some(c => c.includes('h-h (hr:mi)')) ||
-      joined.includes('prog.semanal') ||
-      joined.includes('plano de execu') ||
-      joined.includes('programacao sem') ||
-      joined.includes('programação sem') ||
-      (flat.some(c => c.includes('equipe:')) && flat.some(c => c.includes('disponivel') || c.includes('h-h'))) ||
-      name.includes('progsem') || name.includes('prog_sem') || name.includes('programacao') || name.includes('programação'))
-    return {type:'progsem', label:'Programacao Semanal'};
-
-  /* --- Ordens de Servico --- */
-  if (flat.some(c => c === 'o.s.' || c === 'os') &&
-      flat.some(c => c.includes('codigo') && c.includes('servi')))
-    return {type:'os', label:'Ordens de Servico'};
-  if (name.includes('bdd_os') || name.includes('os_cal') || name.includes('os_mec') ||
-      name.includes('os_civ') || name.includes('os_ele'))
-    return {type:'os', label:'Ordens de Servico'};
-
-  /* --- Apontamento --- */
-  if (flat.some(c => c.includes('hr.in') || c.includes('hr.fim') || c.includes('hr.total')) ||
-      name.includes('apontamento'))
-    return {type:'apontamento', label:'Apontamento de Mao de Obra'};
-
-  /* --- Pre-Ordens --- */
-  if (flat.some(c => c.includes('pre-os') || c === 'pre-ordem' || c.includes('pre-ordem')) ||
-      flat.some(c => c === 'situacao' || c === 'situação') && flat.some(c => c.includes('pre')) ||
-      name.includes('preos') || name.includes('pre_os') || name.includes('pre-os'))
-    return {type:'preos', label:'Pre-Ordens de Servico'};
-
-  /* --- Material --- */
-  if (flat.some(c => c.includes('solicita') && c.includes('material')) ||
-      flat.some(c => c.includes('cod') && c.includes('material')) ||
-      name.includes('material') || name.includes('solic'))
-    return {type:'material', label:'Solicitacao de Material'};
-
-  return {type:'unknown', label:'Tipo nao identificado - verificar arquivo'};
+  const name=filename.toLowerCase();
+  const flat=rows?rows.slice(0,10).flat().map(c=>String(c||'').toLowerCase().trim()):[];
+  const joined=flat.join(' ');
+  /* Programacao Semanal */
+  if(flat.some(c=>c.includes('h-h (hr:mi)'))||joined.includes('prog.semanal')||
+     joined.includes('plano de execu')||joined.includes('programacao sem')||
+     joined.includes('programação sem')||
+     (flat.some(c=>c.includes('equipe:'))&&flat.some(c=>c.includes('disponivel')||c.includes('h-h')))||
+     name.includes('progsem')||name.includes('prog_sem')||
+     name.includes('programacao')||name.includes('programação'))
+    return {type:'progsem',label:'Programacao Semanal'};
+  /* Ordens de Servico */
+  if((flat.some(c=>c==='o.s.'||c==='os')&&flat.some(c=>c.includes('codigo')&&c.includes('servi')))||
+     name.includes('bdd_os')||name.includes('os_cal')||name.includes('os_mec')||
+     name.includes('os_civ')||name.includes('os_ele'))
+    return {type:'os',label:'Ordens de Servico'};
+  /* Apontamento */
+  if(flat.some(c=>c.includes('hr.in')||c.includes('hr.fim')||c.includes('hr.total'))||
+     name.includes('apontamento'))
+    return {type:'apontamento',label:'Apontamento de Mao de Obra'};
+  /* Pre-Ordens */
+  if(flat.some(c=>c.includes('pre-os')||c==='pre-ordem'||c.includes('pre-ordem'))||
+     (flat.some(c=>c==='situacao'||c==='situação')&&flat.some(c=>c.includes('pre')))||
+     flat.some(c=>c==='pre-os')||
+     name.includes('preos')||name.includes('pre_os')||name.includes('pre-os'))
+    return {type:'preos',label:'Pre-Ordens de Servico'};
+  /* Material */
+  if(flat.some(c=>c.includes('solicita')&&c.includes('material'))||
+     flat.some(c=>c.includes('cod')&&c.includes('material'))||
+     name.includes('material')||name.includes('solic'))
+    return {type:'material',label:'Solicitacao de Material'};
+  return {type:'unknown',label:'Tipo nao identificado'};
 }
 
-/* Parser que aceita rows de QUALQUER aba do xlsx */
-function parseRowsProgSemanal(rows, sContext) {
-  const registros = [];
-  let equipeAtual = sContext.equipeAtual || '';
-  let equipeDesc  = sContext.equipeDesc  || '';
-  let semana      = sContext.semana      || null;
-  let ano         = sContext.ano         || null;
-  let dataInicio  = sContext.dataInicio  || null;
-  let dataFim     = sContext.dataFim     || null;
-
-  /* Juntar primeiras 10 linhas para detectar semana/periodo */
-  const headerText = rows.slice(0, 10).map(row => row.map(c => String(c || '')).join(' ')).join(' ');
-
-  /* Formato novo xlsx: "SEM 8 18/05-24/05/26" */
-  const mSemNovo = headerText.match(/SEM\s*(\d+)\s+(\d{2})\/(\d{2})-(\d{2})\/(\d{2})\/(\d{2,4})/i);
-  if (mSemNovo) {
-    semana = parseInt(mSemNovo[1]);
-    const anoRaw = mSemNovo[6];
-    ano = anoRaw.length === 2 ? 2000 + parseInt(anoRaw) : parseInt(anoRaw);
-    dataInicio = mSemNovo[2] + '/' + mSemNovo[3] + '/' + ano;
-    dataFim    = mSemNovo[4] + '/' + mSemNovo[5] + '/' + ano;
+/* -- PARSER PROGRAMACAO SEMANAL -- */
+function parseRowsProgSemanal(rows, ctx) {
+  const registros=[];
+  let equipeAtual=ctx.equipeAtual||'', equipeDesc=ctx.equipeDesc||'';
+  let semana=ctx.semana||null, ano=ctx.ano||null;
+  let dataInicio=ctx.dataInicio||null, dataFim=ctx.dataFim||null;
+  const headerText=rows.slice(0,10).map(row=>row.map(c=>String(c||'')).join(' ')).join(' ');
+  const mSN=headerText.match(/SEM\s*(\d+)\s+(\d{2})\/(\d{2})-(\d{2})\/(\d{2})\/(\d{2,4})/i);
+  if(mSN){
+    semana=parseInt(mSN[1]);
+    const ar=mSN[6]; ano=ar.length===2?2000+parseInt(ar):parseInt(ar);
+    dataInicio=mSN[2]+'/'+mSN[3]+'/'+ano; dataFim=mSN[4]+'/'+mSN[5]+'/'+ano;
   }
-
-  /* Formato com datas longas: "Inicio : 18/05/2026   Fim : 24/05/2026" */
-  if (!semana) {
-    const mSem = headerText.match(/SEM\s*(\d+)/i);
-    if (mSem) semana = parseInt(mSem[1]);
+  if(!semana){ const m=headerText.match(/SEM\s*(\d+)/i); if(m) semana=parseInt(m[1]); }
+  if(!dataInicio){
+    const mI=headerText.match(/In[iI]cio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+    const mF=headerText.match(/Fim\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+    if(mI){ dataInicio=mI[1]; ano=parseInt(mI[1].split('/')[2]); }
+    if(mF) dataFim=mF[1];
   }
-  if (!dataInicio) {
-    const mIni = headerText.match(/In[iI]cio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
-    const mFim = headerText.match(/Fim\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
-    if (mIni) { dataInicio = mIni[1]; ano = parseInt(mIni[1].split('/')[2]); }
-    if (mFim)   dataFim = mFim[1];
+  if(!dataInicio){
+    const mP=headerText.match(/(\d{2}\/\d{2}\/\d{4})/g);
+    if(mP&&mP.length>=2){ dataInicio=mP[0]; dataFim=mP[1]; ano=parseInt(mP[0].split('/')[2]); }
   }
-  if (!dataInicio) {
-    const mPer = headerText.match(/(\d{2}\/\d{2}\/\d{4})/g);
-    if (mPer && mPer.length >= 2) { dataInicio = mPer[0]; dataFim = mPer[1]; ano = parseInt(mPer[0].split('/')[2]); }
-  }
-
-  rows.slice(0, 10).forEach(row => { void row; }); /* dummy - mantido por compatibilidade */
-
-  rows.forEach(row => {
-    const cells = row.map(c => String(c || '').trim());
-    const joined = cells.join(' ');
-    if (cells[0].toLowerCase().startsWith('equipe:') || joined.match(/^Equipe:\s*[A-Z0-9]/i)) {
-      const mEq = (cells[1] || joined).match(/([A-Z0-9]{2,6})\s*[-]\s*(.+)/i);
-      if (mEq) { equipeAtual = mEq[1].trim(); equipeDesc = mEq[2].trim(); }
-      return;
+  rows.forEach(row=>{
+    const cells=row.map(c=>String(c||'').trim());
+    const joined=cells.join(' ');
+    if(cells[0].toLowerCase().startsWith('equipe:')||(cells[0].toLowerCase()==='equipe:')){
+      const src=cells[1]||joined;
+      const mE=src.match(/([A-Z0-9]{2,6})\s*[-]\s*(.+)/i);
+      if(mE){ equipeAtual=mE[1].trim(); equipeDesc=mE[2].trim(); } return;
     }
-    const osNum = cells[0];
-    if (!/^\d{5,}$/.test(osNum)) return;
-    if (!equipeAtual) return;
-    const descricao   = cells[1] || '';
-    const equipamento = cells[2] || '';
-    let hh = null;
-    for (let idx = 5; idx >= 3; idx--) {
-      if (idx < cells.length) {
-        const raw = String(cells[idx] || '').split(/[\r\n]/)[0].replace(',', '.');
-        const v = parseFloat(raw);
-        if (!isNaN(v) && v > 0 && v < 10000) { hh = v; break; }
+    const osNum=cells[0];
+    if(!/^\d{5,}$/.test(osNum)||!equipeAtual) return;
+    const descricao=cells[1]||'';
+    const equipamento=cells[2]||'';
+    let hh=null;
+    for(let idx=5;idx>=3;idx--){
+      if(idx<cells.length){
+        const raw=String(cells[idx]||'').split(/[\r\n]/)[0].replace(',','.');
+        const v=parseFloat(raw);
+        if(!isNaN(v)&&v>0&&v<10000){ hh=v; break; }
       }
     }
-    const dataCelula = cells[3] || '';
-    const mDatas = dataCelula.match(/(\d{2}\/\d{2})\s+(\d{2}:\d{2})\s+(\d{2}\/\d{2})\s+(\d{2}:\d{2})/);
-    if (!descricao && !equipamento) return;
-    registros.push({
-      semana, ano, data_inicio: dataInicio, data_fim: dataFim,
-      os: osNum, descricao, equipamento,
-      equipe: equipeAtual, equipe_desc: equipeDesc, hh_previsto: hh,
-      data_inicio_serv: mDatas ? mDatas[1] : null, hora_inicio:     mDatas ? mDatas[2] : null,
-      data_fim_serv:    mDatas ? mDatas[3] : null, hora_fim:         mDatas ? mDatas[4] : null,
-    });
+    if(!descricao&&!equipamento) return;
+    registros.push({semana,ano,data_inicio:dataInicio,data_fim:dataFim,
+      os:osNum,descricao:descricao.slice(0,500),equipamento:equipamento.slice(0,50),
+      equipe:equipeAtual,equipe_desc:equipeDesc.slice(0,100),hh_previsto:hh,
+      data_inicio_serv:null,hora_inicio:null,data_fim_serv:null,hora_fim:null});
   });
-  return { registros, semana, ano, dataInicio, dataFim, equipeAtual, equipeDesc };
+  return {registros,semana,ano,dataInicio,dataFim,equipeAtual,equipeDesc};
 }
 
-/* parseProgSemanal: itera todas as abas do workbook */
 function parseProgSemanal(rows, wb) {
-  let allRegistros = [];
-  let context = { semana: null, ano: null, dataInicio: null, dataFim: null, equipeAtual: '', equipeDesc: '' };
-
-  /* Se tiver workbook (multiplas abas), processar cada aba */
-  if (wb && wb.SheetNames && wb.SheetNames.length > 1) {
-    wb.SheetNames.forEach(sheetName => {
-      const ws  = wb.Sheets[sheetName];
-      const sheetRows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-      const result = parseRowsProgSemanal(sheetRows, context);
-      allRegistros = allRegistros.concat(result.registros);
-      /* Propagar contexto (semana/equipe) entre abas */
-      if (result.semana)      context.semana      = result.semana;
-      if (result.ano)         context.ano         = result.ano;
-      if (result.dataInicio)  context.dataInicio  = result.dataInicio;
-      if (result.dataFim)     context.dataFim     = result.dataFim;
-      if (result.equipeAtual) context.equipeAtual = result.equipeAtual;
-      if (result.equipeDesc)  context.equipeDesc  = result.equipeDesc;
+  let all=[], ctx={semana:null,ano:null,dataInicio:null,dataFim:null,equipeAtual:'',equipeDesc:''};
+  if(wb&&wb.SheetNames&&wb.SheetNames.length>1){
+    wb.SheetNames.forEach(sn=>{
+      const ws=wb.Sheets[sn];
+      const sr=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      const res=parseRowsProgSemanal(sr,ctx);
+      all=all.concat(res.registros);
+      if(res.semana) ctx.semana=res.semana;
+      if(res.ano) ctx.ano=res.ano;
+      if(res.dataInicio) ctx.dataInicio=res.dataInicio;
+      if(res.dataFim) ctx.dataFim=res.dataFim;
+      if(res.equipeAtual) ctx.equipeAtual=res.equipeAtual;
+      if(res.equipeDesc) ctx.equipeDesc=res.equipeDesc;
     });
-    return { registros: allRegistros, semana: context.semana, ano: context.ano, dataInicio: context.dataInicio, dataFim: context.dataFim };
+    return {registros:all,semana:ctx.semana,ano:ctx.ano,dataInicio:ctx.dataInicio,dataFim:ctx.dataFim};
   }
+  return parseRowsProgSemanal(rows,ctx);
+}
 
-  /* Aba unica */
-  return parseRowsProgSemanal(rows, context);
+/* -- PARSER OS -- */
+function parseOS(rows) {
+  const registros=[];
+  if(!rows.length) return registros;
+  /* Encontrar linha de cabecalho */
+  let hdrIdx=rows.findIndex(r=>r.some(c=>String(c||'').toLowerCase().includes('o.s.')||String(c||'').toLowerCase()==='os'));
+  if(hdrIdx<0) hdrIdx=0;
+  const hdr=rows[hdrIdx].map(c=>String(c||'').toLowerCase().trim());
+  const col=name=>hdr.findIndex(h=>h.includes(name));
+  const iOS=col('o.s.'); const iDescOS=col('descrição os'); const iCodServ=col('codigo serv');
+  const iDescServ=col('descrição serv'); const iDataCom=col('data comunic');
+  const iDataGer=col('data gera'); const iDataEnc=col('data encerr');
+  const iTipoOS=col('tipo o.s.'); const iTipoAtiv=col('tipo ativ');
+  const iEquipe=col('equipe'); const iMis=col('mis');
+  const iEquipamento=col('equipamento'); const iHhPrev=col('hh prev. serv');
+  const iHhReal=col('hh real serv'); const iStatusOS=col('status os');
+  const iStatusServ=col('status serv'); const iCracha=col('cracha');
+  const iNome=col('nome'); const iSafra=col('safra');
+  rows.slice(hdrIdx+1).forEach(row=>{
+    const g=i=>i>=0&&i<row.length?str(row[i]):'';
+    const os=g(iOS);
+    if(!os||!/^\d{4,}$/.test(os)) return;
+    registros.push({
+      empresa:'2', safra:g(iSafra),
+      os:os, descricao_os:g(iDescOS).slice(0,200),
+      codigo_servico:g(iCodServ), descricao_servico:g(iDescServ).slice(0,200),
+      data_comunicacao:g(iDataCom), hora_comunicacao:g(col('hora comunic')),
+      data_geracao:g(iDataGer), data_encerramento:g(iDataEnc),
+      mis:g(iMis), equipamento:g(iEquipamento).slice(0,50),
+      tipo_atividade:g(iTipoAtiv), equipe:g(iEquipe).slice(0,20),
+      hh_previsto:parseFloat(g(iHhPrev))||null,
+      hh_real:parseFloat(g(iHhReal))||null,
+      status_os:g(iStatusOS), status_servico:g(iStatusServ),
+      cracha:g(iCracha), nome:g(iNome).slice(0,100),
+    });
+  });
+  return registros;
+}
+
+/* -- PARSER PRE-ORDENS -- */
+function parsePreOS(rows) {
+  const registros=[];
+  let hdrIdx=rows.findIndex(r=>r.some(c=>String(c||'').toLowerCase().includes('pre-os')||String(c||'').toLowerCase()==='pre-os'));
+  if(hdrIdx<0) return registros;
+  const hdr=rows[hdrIdx].map(c=>String(c||'').toLowerCase().trim());
+  const col=name=>hdr.findIndex(h=>h.includes(name));
+  const iPreOS=col('pre-os'); const iSit=col('situa');
+  const iOS=col(' os'); const iDataCom=col('data comun');
+  const iHoraCom=col('hora comun'); const iDataInc=col('data inclu');
+  const iHoraInc=col('hora inclu'); const iUser=col('usu');
+  const iDesc=col('descri'); const iMis=col('mis');
+  rows.slice(hdrIdx+1).forEach(row=>{
+    const g=i=>i>=0&&i<row.length?str(row[i]):'';
+    const preOS=g(iPreOS);
+    if(!preOS||!/^\d+$/.test(preOS)) return;
+    registros.push({
+      pre_os:preOS, situacao:g(iSit), os:g(iOS)||null,
+      data_comunicacao:g(iDataCom), hora_comunicacao:g(iHoraCom),
+      data_inclusao:g(iDataInc), hora_inclusao:g(iHoraInc),
+      usuario:g(iUser), descricao_servico:g(iDesc).slice(0,300),
+      mis:g(iMis).slice(0,50),
+    });
+  });
+  return registros;
+}
+
+/* -- PARSER APONTAMENTO -- */
+function parseApontamento(rows) {
+  /* Formato de relatorio empilhado por funcionario */
+  const registros=[];
+  let cracha='', nome='', dataAtual='', equipe='';
+  rows.forEach(row=>{
+    const cells=row.map(c=>String(c||'').trim());
+    const joined=cells.join(' ');
+    /* Linha de funcionario: Cracha e Nome */
+    const mFunc=joined.match(/(\d{4,})\s+[-]\s+([A-Za-z\u00C0-\u017F ]+)/);
+    if(mFunc&&!cells[0].match(/^\d{5,}$/)){ cracha=mFunc[1]; nome=mFunc[2].trim(); return; }
+    /* Linha de data */
+    const mData=joined.match(/^(\d{2}\/\d{2}\/\d{4})/);
+    if(mData&&!cells[0].match(/^\d{5,}$/)){ dataAtual=mData[1]; return; }
+    /* Linha de servico: OS 5+ digitos */
+    const os=cells[0];
+    if(!/^\d{5,}$/.test(os)) return;
+    const descricao=cells[1]||'';
+    const hIni=cells[2]||'', hFim=cells[3]||'';
+    let hhTotal=null;
+    for(let i=4;i<=6;i++){
+      if(i<cells.length){
+        const v=parseFloat(String(cells[i]).replace(',','.'));
+        if(!isNaN(v)&&v>0&&v<24){ hhTotal=v; break; }
+      }
+    }
+    registros.push({
+      data_apontamento:dataAtual, cracha:cracha, nome_funcionario:nome.slice(0,100),
+      os:os, codigo_servico:cells[4]||null, descricao_servico:descricao.slice(0,200),
+      hora_inicio:hIni, hora_fim:hFim, hh_total:hhTotal,
+      tipo_atividade:cells[5]||null, equipe:equipe||null,
+    });
+  });
+  return registros;
+}
+
+/* -- SALVAR GENERICO -- */
+async function salvarNoBanco(tabela, registros, chaveUnica) {
+  if(!registros.length){ showToast('Nenhum registro encontrado','ti-alert-circle',5000); return false; }
+  if(!sb){ showToast('Sem conexao com banco','ti-alert-circle',5000); return false; }
+  /* Verificar duplicidade se chaveUnica fornecida */
+  if(chaveUnica){
+    const {campo,valor}=chaveUnica;
+    const {data:ex}=await sb.from(tabela).select('id',{count:'exact',head:true}).eq(campo,valor);
+    if(ex&&ex.length>0){
+      const ok=confirm(tabela+': registro com '+campo+'='+valor+' ja existe.\nDeseja substituir?');
+      if(!ok){ showToast('Cancelado','ti-info-circle',3000); return false; }
+      await sb.from(tabela).delete().eq(campo,valor);
+    }
+  }
+  const BATCH=100; let total=0;
+  for(let i=0;i<registros.length;i+=BATCH){
+    const {error}=await sb.from(tabela).insert(registros.slice(i,i+BATCH));
+    if(error){ console.error(error); showToast('Erro ao salvar: '+error.message,'ti-alert-circle',7000); return false; }
+    total+=registros.slice(i,i+BATCH).length;
+  }
+  return total;
 }
 
 async function salvarProgSemanal(registros) {
-  if(!registros.length){showToast('Nenhum registro encontrado','ti-alert-circle',5000);return false;}
-  if(!sb){showToast('Sem conexao com o banco de dados','ti-alert-circle',5000);return false;}
+  if(!registros.length){ showToast('Nenhum registro','ti-alert-circle',5000); return false; }
+  if(!sb){ showToast('Sem conexao','ti-alert-circle',5000); return false; }
   const {semana,ano}=registros[0];
-  const {data:existing,error:chkErr}=await sb.from('programacao_semanal').select('id',{count:'exact',head:true}).eq('semana',semana).eq('ano',ano);
-  if(chkErr){showToast('Erro ao verificar banco: '+chkErr.message,'ti-alert-circle',5000);return false;}
-  if(existing&&existing.length>0){
-    const ok=confirm('Semana '+semana+'/'+ano+' ja importada. Deseja substituir os dados?');
-    if(!ok){showToast('Importacao cancelada','ti-info-circle',3000);return false;}
-    const {error:delErr}=await sb.from('programacao_semanal').delete().eq('semana',semana).eq('ano',ano);
-    if(delErr){showToast('Erro ao remover dados anteriores: '+delErr.message,'ti-alert-circle',5000);return false;}
+  if(!semana||!ano){ showToast('Semana/ano nao identificados no arquivo','ti-alert-circle',6000); return false; }
+  const {data:ex}=await sb.from('programacao_semanal').select('id',{count:'exact',head:true}).eq('semana',semana).eq('ano',ano);
+  if(ex&&ex.length>0){
+    const ok=confirm('Semana '+semana+'/'+ano+' ja importada. Substituir?');
+    if(!ok){ showToast('Cancelado','ti-info-circle',3000); return false; }
+    const {error:de}=await sb.from('programacao_semanal').delete().eq('semana',semana).eq('ano',ano);
+    if(de){ showToast('Erro ao remover dados anteriores: '+de.message,'ti-alert-circle',5000); return false; }
   }
   const limpos=registros.map(r=>({
     semana:r.semana||null, ano:r.ano||null,
     data_inicio:r.data_inicio||null, data_fim:r.data_fim||null,
-    os:r.os||null,
-    descricao:String(r.descricao||'').slice(0,500),
+    os:r.os||null, descricao:String(r.descricao||'').slice(0,500),
     equipamento:String(r.equipamento||'').slice(0,50),
     equipe:String(r.equipe||'').slice(0,20),
     equipe_desc:String(r.equipe_desc||'').slice(0,100),
     hh_previsto:isNaN(parseFloat(r.hh_previsto))?null:parseFloat(r.hh_previsto),
     data_inicio_serv:r.data_inicio_serv||null, hora_inicio:r.hora_inicio||null,
-    data_fim_serv:r.data_fim_serv||null,       hora_fim:r.hora_fim||null,
+    data_fim_serv:r.data_fim_serv||null, hora_fim:r.hora_fim||null,
   }));
   const BATCH=100; let total=0;
   for(let i=0;i<limpos.length;i+=BATCH){
-    const lote=limpos.slice(i,i+BATCH);
-    const {error}=await sb.from('programacao_semanal').insert(lote);
-    if(error){ console.error('Supabase error:',error); showToast('Erro ao salvar: '+error.message,'ti-alert-circle',7000); return false; }
-    total+=lote.length;
+    const {error}=await sb.from('programacao_semanal').insert(limpos.slice(i,i+BATCH));
+    if(error){ console.error(error); showToast('Erro: '+error.message,'ti-alert-circle',7000); return false; }
+    total+=limpos.slice(i,i+BATCH).length;
   }
-  /* Recarregar semanas apos importacao bem-sucedida */
   await carregarSemanas();
   return total;
 }
 
-function handleDrop(e){e.preventDefault();document.getElementById('dz').classList.remove('over');const f=e.dataTransfer.files[0];if(f)handleFile(f);}
+/* -- HANDLE FILE -- */
+function handleDrop(e){ e.preventDefault(); document.getElementById('dz').classList.remove('over'); const f=e.dataTransfer.files[0]; if(f) handleFile(f); }
 
 async function handleFile(file) {
-  if (!file) return;
-  showToast('Lendo ' + file.name + '...', 'ti-loader');
-  const reader = new FileReader();
-  reader.onload = async ev => {
-    try {
-      const wb   = XLSX.read(ev.target.result, {type:'array'});
-      const ws   = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-      const detected = detectFileType(file.name, rows);
-      if (detected.type === 'progsem') {
-        const {registros, semana, ano} = parseProgSemanal(rows, wb);
-        const semInfo = semana ? 'Semana ' + semana + (ano ? ' . ' + ano : '') : 'semana nao identificada';
-        if (!registros.length) { addHistRow(file.name, detected.label, false, 'Nenhum servico encontrado'); showToast('Nenhum servico encontrado.', 'ti-alert-circle', 5000); return; }
-        showToast(semInfo + ' . ' + registros.length + ' servicos . salvando...', 'ti-calendar', 4000);
-        const saved = await salvarProgSemanal(registros);
-        if (saved) { addHistRow(file.name, 'Prog. Semanal - ' + semInfo, true, 'OK . ' + saved + ' registros'); showToast('Salvo: ' + saved + ' servicos', 'ti-check', 5000); }
-        else addHistRow(file.name, detected.label, false, 'Erro ao salvar');
+  if(!file) return;
+  showToast('Lendo '+file.name+'...','ti-loader');
+  const reader=new FileReader();
+  reader.onload=async ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      const det=detectFileType(file.name,rows);
+      let saved=false;
+
+      if(det.type==='progsem'){
+        const {registros,semana,ano}=parseProgSemanal(rows,wb);
+        const info=semana?'Semana '+semana+(ano?' . '+ano:''):'semana nao identificada';
+        if(!registros.length){ addHistRow(file.name,det.label,false,'0 servicos encontrados'); showToast('Nenhum servico encontrado','ti-alert-circle',5000); return; }
+        showToast(info+' . '+registros.length+' servicos . salvando...','ti-calendar',4000);
+        saved=await salvarProgSemanal(registros);
+        if(saved){ addHistRow(file.name,'Prog.Semanal - '+info,true,'OK . '+saved+' registros'); showToast('Salvo: '+saved+' servicos','ti-check',5000); }
+        else addHistRow(file.name,det.label,false,'Erro ao salvar');
+
+      } else if(det.type==='os'){
+        const regs=parseOS(rows);
+        if(!regs.length){ addHistRow(file.name,det.label,false,'0 OS encontradas'); showToast('Nenhuma OS encontrada','ti-alert-circle',5000); return; }
+        showToast(regs.length+' OS encontradas . salvando...','ti-loader',3000);
+        /* Apagar OS do mesmo arquivo antes de reinserir (sem chave unica, apaga por importado_em seria complexo) */
+        /* Por enquanto inserir direto -- usuario e responsavel por nao duplicar */
+        saved=await salvarNoBanco('ordens_servico',regs,null);
+        if(saved){ addHistRow(file.name,det.label,true,'OK . '+saved+' OS'); showToast('Salvo: '+saved+' OS','ti-check',5000); }
+        else addHistRow(file.name,det.label,false,'Erro ao salvar');
+
+      } else if(det.type==='preos'){
+        const regs=parsePreOS(rows);
+        if(!regs.length){ addHistRow(file.name,det.label,false,'0 pre-OS encontradas'); showToast('Nenhuma pre-OS encontrada','ti-alert-circle',5000); return; }
+        showToast(regs.length+' pre-OS . salvando...','ti-loader',3000);
+        saved=await salvarNoBanco('pre_ordens',regs,null);
+        if(saved){ addHistRow(file.name,det.label,true,'OK . '+saved+' pre-OS'); showToast('Salvo: '+saved+' pre-OS','ti-check',5000); }
+        else addHistRow(file.name,det.label,false,'Erro ao salvar');
+
+      } else if(det.type==='apontamento'){
+        const regs=parseApontamento(rows);
+        if(!regs.length){ addHistRow(file.name,det.label,false,'0 apontamentos encontrados'); showToast('Nenhum apontamento encontrado','ti-alert-circle',5000); return; }
+        showToast(regs.length+' apontamentos . salvando...','ti-loader',3000);
+        saved=await salvarNoBanco('apontamentos',regs,null);
+        if(saved){ addHistRow(file.name,det.label,true,'OK . '+saved+' apontamentos'); showToast('Salvo: '+saved+' apontamentos','ti-check',5000); }
+        else addHistRow(file.name,det.label,false,'Erro ao salvar');
+
       } else {
-        const dataRows = rows.filter(r => r.some(c => String(c).trim())).length;
-        addHistRow(file.name, detected.label, true, 'Identificado . ' + dataRows + ' linhas');
-        showToast('Identificado: ' + detected.label + ' (modulo em desenvolvimento)', 'ti-info-circle', 5000);
+        addHistRow(file.name,det.label,false,'Tipo nao reconhecido - verifique o arquivo');
+        showToast('Tipo de arquivo nao reconhecido: '+det.label,'ti-alert-circle',5000);
       }
-    } catch (err) { addHistRow(file.name, 'Erro', false, 'Erro: ' + err.message); showToast('Erro ao ler arquivo: ' + err.message, 'ti-alert-circle', 5000); }
+    } catch(err){
+      console.error(err);
+      addHistRow(file.name,'Erro',false,'Erro: '+err.message.slice(0,50));
+      showToast('Erro ao ler arquivo: '+err.message,'ti-alert-circle',6000);
+    }
   };
   reader.readAsArrayBuffer(file);
 }
@@ -1197,25 +1204,23 @@ async function handleFile(file) {
 function addHistRow(name,type,ok,badge){
   const now=new Date();
   const time=now.getHours()+':'+String(now.getMinutes()).padStart(2,'0');
-  const icon=name.endsWith('.pdf')?'ti-file-type-pdf':'ti-file-spreadsheet';
-  const color=name.endsWith('.pdf')?'var(--red-l)':'var(--green)';
-  document.getElementById('hist-list').insertAdjacentHTML('afterbegin','<div class="hist-row"><i class="ti '+icon+'" style="color:'+color+'"></i><span class="hist-name" title="'+name+'">'+name+'</span><span class="hist-date">hoje '+time+'</span><span class="hist-badge '+(ok?'hb-ok':'hb-err')+'">'+badge+'</span></div>');
+  document.getElementById('hist-list').insertAdjacentHTML('afterbegin',
+    '<div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i>'+
+    '<span class="hist-name" title="'+name+'">'+name+'</span>'+
+    '<span class="hist-date">hoje '+time+'</span>'+
+    '<span class="hist-badge '+(ok?'hb-ok':'hb-err')+'">'+badge+'</span></div>');
 }
 
 /* -- INICIALIZACAO -- */
 window.addEventListener('load', function() {
   const base={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{}}};
-  Chart.register(topLbl, midPct);
-
-  /* Criar charts com dados vazios -- serao preenchidos apos carregarSemanas() */
-  const empty = ALL_EQ;
+  Chart.register(topLbl,midPct);
+  const empty=ALL_EQ;
   charts.c1=new Chart(document.getElementById('c1'),{type:'bar',data:{labels:empty,datasets:[{data:empty.map(()=>0),backgroundColor:YELLOW,borderRadius:5,_fmt:v=>v+'h'}]},options:{...base,scales:{x:{ticks:{color:tickC,font:{size:10}},grid:{display:false}},y:{ticks:{color:tickC,font:{size:10},callback:v=>v+'h'},grid:{color:gridC}}}}});
   charts.c2=new Chart(document.getElementById('c2'),{type:'bar',data:{labels:empty,datasets:[{data:empty.map(()=>0),backgroundColor:empty.map(()=>GREEN),borderRadius:5,_fmt:v=>v+'%'}]},options:{...base,scales:{x:{ticks:{color:tickC,font:{size:10}},grid:{display:false}},y:{min:0,max:100,ticks:{color:tickC,font:{size:10},callback:v=>v+'%'},grid:{color:gridC}}}}});
   charts.c3=new Chart(document.getElementById('c3'),{type:'bar',data:{labels:[],datasets:[{data:[],backgroundColor:[],borderRadius:5,_fmt:v=>v+'%'}]},options:{...base,scales:{x:{ticks:{color:tickC,font:{size:10}},grid:{display:false}},y:{min:0,max:100,ticks:{color:tickC,font:{size:10},callback:v=>v+'%'},grid:{color:gridC}}}}});
   charts.c4=new Chart(document.getElementById('c4'),{type:'bar',data:{_showMid:true,labels:empty,datasets:[{label:'Previsto',data:empty.map(()=>0),backgroundColor:YELLOW,borderRadius:5,_noLabel:true},{label:'Realizado',data:empty.map(()=>0),backgroundColor:empty.map(()=>GREEN),borderRadius:5,_noLabel:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{color:tickC,font:{size:10},boxWidth:10,boxHeight:10}},tooltip:{}},scales:{x:{ticks:{color:tickC,font:{size:10}},grid:{display:false}},y:{ticks:{color:tickC,font:{size:10},callback:v=>v+'h'},grid:{color:gridC}}}}});
   charts.c5=new Chart(document.getElementById('c5'),{type:'bar',data:{labels:empty,datasets:[{label:'MCU',data:empty.map(()=>0),backgroundColor:RED,borderRadius:0,_noLabel:true},{label:'Dentro da prog.',data:empty.map(()=>0),backgroundColor:GREEN,borderRadius:0,_noLabel:true},{label:'Fora da prog.',data:empty.map(()=>0),backgroundColor:BLUE,borderRadius:0,_noLabel:true}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return ' '+ctx.dataset.label+': '+ctx.raw+'h';}}}},scales:{x:{stacked:true,ticks:{color:tickC,font:{size:10},callback:v=>v+'h'},grid:{color:gridC}},y:{stacked:true,ticks:{color:tickC,font:{size:10}},grid:{display:false}}}}});
-
-  /* Carregar dados reais do Supabase */
   carregarSemanas();
 });
 
