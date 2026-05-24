@@ -1063,102 +1063,60 @@ function parsePreOS(rows) {
 }
 
 /* -- PARSER APONTAMENTO -- */
+/* Formato real: pares de linhas
+   Linha A: [data, tipo_ativ, hora_ini, hora_fim, hh_total]
+   Linha B: [os,   descricao_servico]
+   Cabecalho funcionario: cells[0]='Funcionario:', cells[1]='000034488 - NOME' */
 function parseApontamento(rows) {
-  /* Formato de relatorio empilhado por funcionario */
   const registros=[];
-  let cracha='', nome='', dataAtual='', equipe='';
+  let cracha='', nome='';
+  let dataAtual='', tipoAtiv='', horaIni='', horaFim='', hhTotal=null;
+  let pendente=false;
+
   rows.forEach(row=>{
     const cells=row.map(c=>String(c||'').trim());
-    const joined=cells.join(' ');
-    /* Linha de funcionario: Cracha e Nome */
-    const mFunc=joined.match(/(\d{4,})\s+[-]\s+([A-Za-z\u00C0-\u017F ]+)/);
-    if(mFunc&&!cells[0].match(/^\d{5,}$/)){ cracha=mFunc[1]; nome=mFunc[2].trim(); return; }
-    /* Linha de data */
-    const mData=joined.match(/^(\d{2}\/\d{2}\/\d{4})/);
-    if(mData&&!cells[0].match(/^\d{5,}$/)){ dataAtual=mData[1]; return; }
-    /* Linha de servico: OS 5+ digitos */
-    const os=cells[0];
-    if(!/^\d{5,}$/.test(os)) return;
-    const descricao=cells[1]||'';
-    const hIni=cells[2]||'', hFim=cells[3]||'';
-    let hhTotal=null;
-    for(let i=4;i<=6;i++){
-      if(i<cells.length){
-        const v=parseFloat(String(cells[i]).replace(',','.'));
-        if(!isNaN(v)&&v>0&&v<24){ hhTotal=v; break; }
-      }
+    const c0=cells[0]||'';
+
+    /* Linha de funcionario */
+    if(c0.toLowerCase().startsWith('funcion')){
+      const funcStr=cells[1]||'';
+      const mF=funcStr.match(/^(\d+)\s*-\s*(.+)/);
+      if(mF){ cracha=mF[1].padStart(9,'0'); nome=mF[2].trim(); }
+      pendente=false; return;
     }
-    registros.push({
-      data_apontamento:dataAtual||'', cracha:cracha||'', nome_funcionario:nome.slice(0,100),
-      os:os, codigo_servico:cells[4]||null, descricao_servico:descricao.slice(0,200),
-      hora_inicio:hIni||'00:00', hora_fim:hFim||'00:00', hh_total:hhTotal,
-      tipo_atividade:cells[5]||null, equipe:equipe||null,
-    });
+
+    /* Linha de data: [data, tipo_ativ, hora_ini, hora_fim, hh_total] */
+    if(/^\d{2}\/\d{2}\/\d{4}$/.test(c0)){
+      dataAtual = c0;
+      tipoAtiv  = cells[1]||'';
+      horaIni   = cells[2]||'00:00';
+      horaFim   = cells[3]||'00:00';
+      const hhStr=(cells[4]||'').replace(',','.');
+      hhTotal   = parseFloat(hhStr)||null;
+      pendente  = true; return;
+    }
+
+    /* Linha de OS: [os, descricao] -- vem logo apos linha de data */
+    if(pendente && /^\d{5,6}$/.test(c0)){
+      const descRaw=cells[1]||'';
+      const mCod=descRaw.match(/^(\d+)-(.+)/);
+      registros.push({
+        data_apontamento: dataAtual,
+        cracha:           cracha,
+        nome_funcionario: nome.slice(0,100),
+        os:               c0,
+        codigo_servico:   mCod?mCod[1]:'',
+        descricao_servico:(mCod?mCod[2].trim():descRaw).slice(0,200),
+        hora_inicio:      horaIni||'00:00',
+        hora_fim:         horaFim||'00:00',
+        hh_total:         hhTotal,
+        tipo_atividade:   tipoAtiv||null,
+        equipe:           null,
+      });
+      pendente=false;
+    }
   });
   return registros;
-}
-
-/* -- SALVAR GENERICO -- */
-async function salvarNoBanco(tabela, registros, conflictCols) {
-  if(!registros.length){ showToast('Nenhum registro encontrado','ti-alert-circle',5000); return false; }
-  if(!sb){ showToast('Sem conexao com banco','ti-alert-circle',5000); return false; }
-  const BATCH=100; let total=0;
-  for(let i=0;i<registros.length;i+=BATCH){
-    const lote=registros.slice(i,i+BATCH);
-    let result;
-    if(conflictCols){
-      /* Upsert: atualiza se ja existe pela chave unica, insere se nao existe */
-      result=await sb.from(tabela).upsert(lote,{onConflict:conflictCols,ignoreDuplicates:false});
-    } else {
-      /* Sem conflictCols: upsert ignorando duplicatas */
-      result=await sb.from(tabela).upsert(lote,{ignoreDuplicates:true});
-    }
-    if(result.error){
-      console.error(result.error);
-      showToast('Erro ao salvar: '+result.error.message,'ti-alert-circle',7000);
-      return false;
-    }
-    total+=lote.length;
-  }
-  return total;
-}
-
-async function salvarProgSemanal(registros) {
-  if(!registros.length){ showToast('Nenhum registro','ti-alert-circle',5000); return false; }
-  if(!sb){ showToast('Sem conexao','ti-alert-circle',5000); return false; }
-  const {semana,ano}=registros[0];
-  if(!semana||!ano){ showToast('Semana/ano nao identificados no arquivo','ti-alert-circle',6000); return false; }
-  const {count:exCount,error:exErr}=await sb
-    .from('programacao_semanal')
-    .select('*',{count:'exact',head:true})
-    .eq('semana',semana).eq('ano',ano);
-  if(exErr){ showToast('Erro ao verificar banco: '+exErr.message,'ti-alert-circle',5000); return false; }
-  if(exCount&&exCount>0){
-    const ok=confirm('Semana '+semana+'/'+ano+' ja importada. Substituir?');
-    if(!ok){ showToast('Cancelado','ti-info-circle',3000); return false; }
-    showToast('Removendo dados anteriores da Semana '+semana+'...','ti-loader',2000);
-    const {error:de}=await sb.from('programacao_semanal').delete().eq('semana',semana).eq('ano',ano);
-    if(de){ showToast('Erro ao remover: '+de.message,'ti-alert-circle',5000); return false; }
-  }
-  const limpos=registros.map(r=>({
-    semana:r.semana||null, ano:r.ano||null,
-    data_inicio:r.data_inicio||null, data_fim:r.data_fim||null,
-    os:r.os||null, descricao:String(r.descricao||'').slice(0,500),
-    equipamento:String(r.equipamento||'').slice(0,50),
-    equipe:String(r.equipe||'').slice(0,20),
-    equipe_desc:String(r.equipe_desc||'').slice(0,100),
-    hh_previsto:isNaN(parseFloat(r.hh_previsto))?null:parseFloat(r.hh_previsto),
-    data_inicio_serv:r.data_inicio_serv||null, hora_inicio:r.hora_inicio||null,
-    data_fim_serv:r.data_fim_serv||null, hora_fim:r.hora_fim||null,
-  }));
-  const BATCH=100; let total=0;
-  for(let i=0;i<limpos.length;i+=BATCH){
-    const {error}=await sb.from('programacao_semanal').insert(limpos.slice(i,i+BATCH));
-    if(error){ console.error(error); showToast('Erro: '+error.message,'ti-alert-circle',7000); return false; }
-    total+=limpos.slice(i,i+BATCH).length;
-  }
-  await carregarSemanas();
-  return total;
 }
 
 /* -- HANDLE FILE -- */
