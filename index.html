@@ -1000,7 +1000,8 @@ function parseOS(rows) {
   const iNome=col('nome'); const iSafra=col('safra');
   rows.slice(hdrIdx+1).forEach(row=>{
     const g=i=>i>=0&&i<row.length?str(row[i]):'';
-    const os=g(iOS);
+    const osRaw=g(iOS);
+    const os=String(Math.round(parseFloat(osRaw))||osRaw).replace(/\.0+$/,"");
     if(!os||!/^\d{4,}$/.test(os)) return;
     registros.push({
       empresa:'2', safra:g(iSafra),
@@ -1033,7 +1034,7 @@ function parsePreOS(rows) {
   const iDesc=col('descri'); const iMis=col('mis');
   rows.slice(hdrIdx+1).forEach(row=>{
     const g=i=>i>=0&&i<row.length?str(row[i]):'';
-    const preOS=g(iPreOS);
+    const preOS=String(Math.round(parseFloat(g(iPreOS)))||'').replace(/\.0+$/,'');
     if(!preOS||!/^\d+$/.test(preOS)) return;
     registros.push({
       pre_os:preOS, situacao:g(iSit), os:g(iOS)||null,
