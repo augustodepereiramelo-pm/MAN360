@@ -1003,17 +1003,17 @@ function parseOS(rows) {
     const os=g(iOS);
     if(!os||!/^\d{4,}$/.test(os)) return;
     registros.push({
-      empresa:str('2'), safra:g(iSafra).slice(0,20),
+      empresa:'2', safra:g(iSafra),
       os:os, descricao_os:g(iDescOS).slice(0,200),
-      codigo_servico:g(iCodServ).slice(0,20), descricao_servico:g(iDescServ).slice(0,200),
-      data_comunicacao:g(iDataCom).slice(0,30), hora_comunicacao:g(col('hora comunic')).slice(0,10),
-      data_geracao:g(iDataGer).slice(0,30), data_encerramento:g(iDataEnc).slice(0,30),
-      mis:g(iMis).slice(0,50), equipamento:g(iEquipamento).slice(0,50),
-      tipo_atividade:g(iTipoAtiv).slice(0,50), equipe:g(iEquipe).slice(0,20),
+      codigo_servico:g(iCodServ), descricao_servico:g(iDescServ).slice(0,200),
+      data_comunicacao:g(iDataCom), hora_comunicacao:g(col('hora comunic')),
+      data_geracao:g(iDataGer), data_encerramento:g(iDataEnc),
+      mis:g(iMis), equipamento:g(iEquipamento).slice(0,50),
+      tipo_atividade:g(iTipoAtiv), equipe:g(iEquipe).slice(0,20),
       hh_previsto:parseFloat(g(iHhPrev))||null,
       hh_real:parseFloat(g(iHhReal))||null,
-      status_os:g(iStatusOS).slice(0,20), status_servico:g(iStatusServ).slice(0,20),
-      cracha:g(iCracha).slice(0,20), nome:g(iNome).slice(0,100),
+      status_os:g(iStatusOS), status_servico:g(iStatusServ),
+      cracha:g(iCracha), nome:g(iNome).slice(0,100),
     });
   });
   return registros;
@@ -1022,48 +1022,32 @@ function parseOS(rows) {
 /* -- PARSER PRE-ORDENS -- */
 function parsePreOS(rows) {
   const registros=[];
-  /* Normalizar string removendo acentos */
-  const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
-  /* Encontrar linha de cabecalho */
-  let hdrIdx=rows.findIndex(r=>r.some(c=>norm(c).includes('pre-os')&&norm(c).length<10));
-  if(hdrIdx<0) hdrIdx=rows.findIndex(r=>norm(r[0]).includes('pre-os'));
-  if(hdrIdx<0) hdrIdx=2; /* fallback: linha 3 */
-  const hdr=rows[hdrIdx].map(c=>norm(c));
-  /* Mapear colunas com busca exata primeiro, depois parcial */
-  const colExact=name=>hdr.findIndex(h=>h===name);
-  const colPart =name=>hdr.findIndex(h=>h.includes(name));
-  const iPreOS  =colExact('pre-os')>=0?colExact('pre-os'):0;
-  const iSit    =colExact('situacao')>=0?colExact('situacao'):colPart('situa');
-  const iOS     =colExact('os')>=0?colExact('os'):2; /* 'os' exato, nao 'pre-os' */
-  const iDataCom=colPart('data comun')>=0?colPart('data comun'):3;
-  const iHoraCom=colPart('hora comun')>=0?colPart('hora comun'):4;
-  const iDataInc=colPart('data inclu')>=0?colPart('data inclu'):5;
-  const iHoraInc=colPart('hora inclu')>=0?colPart('hora inclu'):6;
-  const iUser   =colExact('usuario')>=0?colExact('usuario'):colPart('usu')>=0?colPart('usu'):7;
-  const iDesc   =colPart('descri')>=0?colPart('descri'):8;
-  const iMis    =colExact('mis')>=0?colExact('mis'):colPart('mis')>=0?colPart('mis'):9;
+  let hdrIdx=rows.findIndex(r=>r.some(c=>String(c||'').toLowerCase().includes('pre-os')||String(c||'').toLowerCase()==='pre-os'));
+  if(hdrIdx<0) return registros;
+  const hdr=rows[hdrIdx].map(c=>String(c||'').toLowerCase().trim());
+  const col=name=>hdr.findIndex(h=>h.includes(name));
+  const iPreOS=col('pre-os'); const iSit=col('situa');
+  const iOS=col(' os'); const iDataCom=col('data comun');
+  const iHoraCom=col('hora comun'); const iDataInc=col('data inclu');
+  const iHoraInc=col('hora inclu'); const iUser=col('usu');
+  const iDesc=col('descri'); const iMis=col('mis');
   rows.slice(hdrIdx+1).forEach(row=>{
     const g=i=>i>=0&&i<row.length?str(row[i]):'';
     const preOS=g(iPreOS);
-    if(!preOS||!/^\d+$/.test(preOS.trim())) return;
+    if(!preOS||!/^\d+$/.test(preOS)) return;
     registros.push({
-      pre_os:         preOS.trim(),
-      situacao:       g(iSit)||null,
-      os:             g(iOS)||null,
-      data_comunicacao:g(iDataCom)||null,
-      hora_comunicacao:g(iHoraCom)||null,
-      data_inclusao:  g(iDataInc)||null,
-      hora_inclusao:  g(iHoraInc)||null,
-      usuario:        g(iUser)||null,
-      descricao_servico:g(iDesc).slice(0,300),
-      mis:            g(iMis).slice(0,50),
+      pre_os:preOS, situacao:g(iSit), os:g(iOS)||null,
+      data_comunicacao:g(iDataCom), hora_comunicacao:g(iHoraCom),
+      data_inclusao:g(iDataInc), hora_inclusao:g(iHoraInc),
+      usuario:g(iUser), descricao_servico:g(iDesc).slice(0,300),
+      mis:g(iMis).slice(0,50),
     });
   });
   return registros;
 }
 
 /* -- PARSER APONTAMENTO -- */
-/* Formato real: pares de linhas
+/* Formato: pares de linhas
    Linha A: [data, tipo_ativ, hora_ini, hora_fim, hh_total]
    Linha B: [os,   descricao_servico]
    Cabecalho funcionario: cells[0]='Funcionario:', cells[1]='000034488 - NOME' */
@@ -1072,11 +1056,9 @@ function parseApontamento(rows) {
   let cracha='', nome='';
   let dataAtual='', tipoAtiv='', horaIni='', horaFim='', hhTotal=null;
   let pendente=false;
-
   rows.forEach(row=>{
     const cells=row.map(c=>String(c||'').trim());
     const c0=cells[0]||'';
-
     /* Linha de funcionario */
     if(c0.toLowerCase().startsWith('funcion')){
       const funcStr=cells[1]||'';
@@ -1084,18 +1066,14 @@ function parseApontamento(rows) {
       if(mF){ cracha=mF[1].padStart(9,'0'); nome=mF[2].trim(); }
       pendente=false; return;
     }
-
     /* Linha de data: [data, tipo_ativ, hora_ini, hora_fim, hh_total] */
     if(/^\d{2}\/\d{2}\/\d{4}$/.test(c0)){
-      dataAtual = c0;
-      tipoAtiv  = cells[1]||'';
-      horaIni   = cells[2]||'00:00';
-      horaFim   = cells[3]||'00:00';
+      dataAtual=c0; tipoAtiv=cells[1]||'';
+      horaIni=cells[2]||'00:00'; horaFim=cells[3]||'00:00';
       const hhStr=(cells[4]||'').replace(',','.');
-      hhTotal   = parseFloat(hhStr)||null;
-      pendente  = true; return;
+      hhTotal=parseFloat(hhStr)||null;
+      pendente=true; return;
     }
-
     /* Linha de OS: [os, descricao] -- vem logo apos linha de data */
     if(pendente && /^\d{5,6}$/.test(c0)){
       const descRaw=cells[1]||'';
@@ -1117,6 +1095,63 @@ function parseApontamento(rows) {
     }
   });
   return registros;
+}
+
+
+/* -- SALVAR GENERICO -- */
+async function salvarNoBanco(tabela, registros, conflictCols) {
+  if(!registros.length){ showToast('Nenhum registro encontrado','ti-alert-circle',5000); return false; }
+  if(!sb){ showToast('Sem conexao com banco','ti-alert-circle',5000); return false; }
+  const BATCH=100; let total=0;
+  for(let i=0;i<registros.length;i+=BATCH){
+    const lote=registros.slice(i,i+BATCH);
+    let result;
+    if(conflictCols){
+      result=await sb.from(tabela).upsert(lote,{onConflict:conflictCols,ignoreDuplicates:false});
+    } else {
+      result=await sb.from(tabela).upsert(lote,{ignoreDuplicates:true});
+    }
+    if(result.error){
+      console.error(result.error);
+      showToast('Erro ao salvar: '+result.error.message,'ti-alert-circle',7000);
+      return false;
+    }
+    total+=lote.length;
+  }
+  return total;
+}
+
+async function salvarProgSemanal(registros) {
+  if(!registros.length){ showToast('Nenhum registro','ti-alert-circle',5000); return false; }
+  if(!sb){ showToast('Sem conexao','ti-alert-circle',5000); return false; }
+  const {semana,ano}=registros[0];
+  if(!semana||!ano){ showToast('Semana/ano nao identificados no arquivo','ti-alert-circle',6000); return false; }
+  const {data:ex}=await sb.from('programacao_semanal').select('id',{count:'exact',head:true}).eq('semana',semana).eq('ano',ano);
+  if(ex&&ex.length>0){
+    const ok=confirm('Semana '+semana+'/'+ano+' ja importada. Substituir?');
+    if(!ok){ showToast('Cancelado','ti-info-circle',3000); return false; }
+    const {error:de}=await sb.from('programacao_semanal').delete().eq('semana',semana).eq('ano',ano);
+    if(de){ showToast('Erro ao remover dados anteriores: '+de.message,'ti-alert-circle',5000); return false; }
+  }
+  const limpos=registros.map(r=>({
+    semana:r.semana||null, ano:r.ano||null,
+    data_inicio:r.data_inicio||null, data_fim:r.data_fim||null,
+    os:r.os||null, descricao:String(r.descricao||'').slice(0,500),
+    equipamento:String(r.equipamento||'').slice(0,50),
+    equipe:String(r.equipe||'').slice(0,20),
+    equipe_desc:String(r.equipe_desc||'').slice(0,100),
+    hh_previsto:isNaN(parseFloat(r.hh_previsto))?null:parseFloat(r.hh_previsto),
+    data_inicio_serv:r.data_inicio_serv||null, hora_inicio:r.hora_inicio||null,
+    data_fim_serv:r.data_fim_serv||null, hora_fim:r.hora_fim||null,
+  }));
+  const BATCH=100; let total=0;
+  for(let i=0;i<limpos.length;i+=BATCH){
+    const {error}=await sb.from('programacao_semanal').insert(limpos.slice(i,i+BATCH));
+    if(error){ console.error(error); showToast('Erro: '+error.message,'ti-alert-circle',7000); return false; }
+    total+=limpos.slice(i,i+BATCH).length;
+  }
+  await carregarSemanas();
+  return total;
 }
 
 /* -- HANDLE FILE -- */
