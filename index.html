@@ -7,9 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
 
 <style>
 /* ── CONFIG ── */
@@ -518,7 +516,7 @@ body {
       <div class="metric">
         <div class="m-label">Tempo médio Pré → OS</div>
         <div class="m-val" style="color:var(--green)">2,3 dias</div>
-        <div class="m-sub">no período selecionado</div>
+        <div class="m-sub">média geral da safra</div>
       </div>
     </div>
 
@@ -591,13 +589,14 @@ body {
           <i class="ti ti-cloud-upload"></i>
           <div class="dz-label">Arraste o arquivo aqui</div>
           <div class="dz-sub">ou clique para selecionar</div>
-          <input type="file" id="file-input" style="display:none" accept=".xlsx,.xls,.csv" onchange="handleFile(this.files[0])">
+          <input type="file" id="file-input" style="display:none" accept=".xlsx,.xls,.csv,.pdf" onchange="handleFile(this.files[0])">
         </div>
 
         <div class="import-types">
           <div class="itype"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="ext">.xlsx</span>Programação semanal, OS, apontamentos</div>
           <div class="itype"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="ext">.xls</span>Arquivos legados do PIMS MI</div>
           <div class="itype"><i class="ti ti-file-text" style="color:var(--blue)"></i><span class="ext">.csv</span>Exportações diretas do sistema</div>
+          <div class="itype"><i class="ti ti-file-type-pdf" style="color:var(--red-l)"></i><span class="ext">.pdf</span>Prog. semanal TOTVS (texto embutido)</div>
         </div>
 
       </div>
@@ -607,6 +606,7 @@ body {
         <div id="hist-list">
           <div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="hist-name">bdd_os_mec.xlsx</span><span class="hist-date">hoje 11:03</span><span class="hist-badge hb-ok">OK · 312 registros</span></div>
           <div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="hist-name">bdd_progsem.xls</span><span class="hist-date">hoje 10:58</span><span class="hist-badge hb-ok">OK · 87 registros</span></div>
+          <div class="hist-row"><i class="ti ti-file-type-pdf" style="color:var(--red-l)"></i><span class="hist-name">Programacao_Semanal_6.pdf</span><span class="hist-date">ontem 16:22</span><span class="hist-badge hb-ok">OK · 149 registros</span></div>
           <div class="hist-row"><i class="ti ti-file-spreadsheet" style="color:var(--green)"></i><span class="hist-name">bdd_apontamento.xls</span><span class="hist-date">ontem 15:47</span><span class="hist-badge hb-err">Erro · verificar formato</span></div>
         </div>
       </div>
@@ -621,56 +621,64 @@ body {
   <span id="toast-msg"></span>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
-/* ═══════════════════════════════════════════════
-   MAN360 — Programação Semanal
+/* ===============================================
+   MAN360 - Programação Semanal
    Config: altere só estas 2 linhas para migrar
-   ═══════════════════════════════════════════════ */
+   =============================================== */
 const SUPABASE_URL = 'https://gwejwvsmmogzdpgyaggf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3ZWp3dnNtbW9nemRwZ3lhZ2dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NTU0NjIsImV4cCI6MjA5NTEzMTQ2Mn0.HgsOjYyHTOiCtjblADpCcwi7SNkK17jjMTdG4Z7H8Uc';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let sb = null;
+try {
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+} catch(e) {
+  console.warn('Supabase não disponível - modo offline:', e.message);
+}
 
-/* ── DADOS FICTÍCIOS POR SEMANA ── */
+/* -- DADOS FICTÍCIOS POR SEMANA -- */
 const ALL_EQ = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
 const DATA_SEM = {
   5:{ prev:[350,200,75,70,85], real:[280,155,65,63,60], adr:[80,78,87,90,71], mcu:[35,25,7,5,9], dentro:[200,110,50,50,40], fora:[115,65,18,15,36],
       alertas:[
-        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 71%</strong> — abaixo da meta de 80%.'},
-        {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 14% das H-h</strong> — dentro da faixa saudável.'},
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 71%</strong> - abaixo da meta de 80%.'},
+        {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 14% das H-h</strong> - dentro da faixa saudável.'},
       ],
-      repr:[{num:'63200',txt:'CAL1 · Reforma caixa decantador · 18h'},{num:'62980',txt:'MEC1 · Substituir rolamento bomba · 8h'}]
+      repr:[{num:'63200',txt:'CAL1  .  Reforma caixa decantador  .  18h'},{num:'62980',txt:'MEC1  .  Substituir rolamento bomba  .  8h'}]
   },
   6:{ prev:[370,210,78,75,88], real:[305,168,68,68,58], adr:[82,80,87,91,66], mcu:[38,27,8,5,9], dentro:[210,120,50,55,38], fora:[122,48,18,13,38],
       alertas:[
-        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 66%</strong> — abaixo da meta de 80%.'},
-        {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7621 há 5 dias sem conversão</strong> — CAL1.'},
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 66%</strong> - abaixo da meta de 80%.'},
+        {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7621 há 5 dias sem conversão</strong> - CAL1.'},
       ],
-      repr:[{num:'64091',txt:'CIV1 · Instalar canaleta drenos · 70h'},{num:'63845',txt:'CAL1 · Alinhar raspas filtro · 8h'},{num:'64254',txt:'CIV1 · Concretar buraco asfalto · 88h'}]
+      repr:[{num:'64091',txt:'CIV1  .  Instalar canaleta drenos  .  70h'},{num:'63845',txt:'CAL1  .  Alinhar raspas filtro  .  8h'},{num:'64254',txt:'CIV1  .  Concretar buraco asfalto  .  88h'}]
   },
   7:{ prev:[380,215,79,80,90], real:[285,160,62,70,54], adr:[75,74,78,88,60], mcu:[40,28,7,6,10], dentro:[205,115,50,55,38], fora:[130,47,19,14,38],
       alertas:[
-        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 60%</strong> — abaixo da meta de 80%.'},
-        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>MEC1 com aderência de 75%</strong> — abaixo da meta de 80%.'},
-        {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · desde sem. 6.'},
-        {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 17% das H-h</strong> — ligeiramente acima de 15%.'},
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 60%</strong> - abaixo da meta de 80%.'},
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>MEC1 com aderência de 75%</strong> - abaixo da meta de 80%.'},
+        {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> - CAL3  .  36h  .  desde sem. 6.'},
+        {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 17% das H-h</strong> - ligeiramente acima de 15%.'},
       ],
-      repr:[{num:'65156',txt:'CAL3 · SSMA adequar ponto condensado · 36h'},{num:'64534',txt:'CIV1 · Canaleta embebição moenda · 72h'},{num:'65696',txt:'CIV1 · Concretar piso tratamento caldo · 28h'},{num:'63845',txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'}]
+      repr:[{num:'65156',txt:'CAL3  .  SSMA adequar ponto condensado  .  36h'},{num:'64534',txt:'CIV1  .  Canaleta embebição moenda  .  72h'},{num:'65696',txt:'CIV1  .  Concretar piso tratamento caldo  .  28h'},{num:'63845',txt:'CAL1  .  Alinhar raspas filtro rotativo 3  .  8h'}]
   },
   8:{ prev:[389,220,80,82,91], real:[264,165,64,74,50], adr:[68,75,80,90,55], mcu:[42,30,8,6,10], dentro:[210,140,52,60,42], fora:[137,50,20,16,39],
       alertas:[
-        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 55%</strong> — abaixo da meta de 80%.'},
-        {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · desde sem. 6.'},
-        {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7707 há 6 dias sem conversão</strong> — média 2,3 dias · CAL1.'},
-        {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 18% das H-h</strong> — acima da faixa saudável (15%).'},
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 55%</strong> - abaixo da meta de 80%.'},
+        {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> - CAL3  .  36h  .  desde sem. 6.'},
+        {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7707 há 6 dias sem conversão</strong> - média 2,3 dias  .  CAL1.'},
+        {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 18% das H-h</strong> - acima da faixa saudável (15%).'},
       ],
-      repr:[{num:'65156',txt:'CAL3 · SSMA adequar ponto condensado · 36h'},{num:'64534',txt:'CIV1 · Canaleta embebição moenda · 72h'},{num:'65696',txt:'CIV1 · Concretar piso tratamento caldo · 28h'},{num:'63845',txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'},{num:'66409',txt:'CAL1 · Soldar cantoneira travamento PEIP · 10h'},{num:'64915',txt:'CAL1 · Vazamento tanque caldo dosado · 8h'}]
+      repr:[{num:'65156',txt:'CAL3  .  SSMA adequar ponto condensado  .  36h'},{num:'64534',txt:'CIV1  .  Canaleta embebição moenda  .  72h'},{num:'65696',txt:'CIV1  .  Concretar piso tratamento caldo  .  28h'},{num:'63845',txt:'CAL1  .  Alinhar raspas filtro rotativo 3  .  8h'},{num:'66409',txt:'CAL1  .  Soldar cantoneira travamento PEIP  .  10h'},{num:'64915',txt:'CAL1  .  Vazamento tanque caldo dosado  .  8h'}]
   },
 };
 const SEM_LABELS = {5:'Sem 5',6:'Sem 6',7:'Sem 7',8:'Sem 8'};
 let activeSems = [8];
 let activeEqs  = [...ALL_EQ];
 
-/* ── UTILITÁRIOS ── */
+/* -- UTILITÁRIOS -- */
 function toggleSB() { document.getElementById('sb').classList.toggle('open'); }
 
 function toggleDD(id) {
@@ -689,7 +697,7 @@ function showToast(msg, icon='ti-info-circle', duration=3500) {
   setTimeout(()=>t.classList.remove('show'), duration);
 }
 
-/* ── FILTROS ── */
+/* -- FILTROS -- */
 function updateEqLabel() {
   activeEqs = [...document.querySelectorAll('#dd-eq input:checked')].map(i=>i.value);
   document.getElementById('eq-label').textContent = activeEqs.length ? activeEqs.join(', ') : 'Nenhuma equipe';
@@ -715,7 +723,7 @@ function selectAllSems(all) {
   document.getElementById('dd-sem').classList.remove('show');
 }
 
-/* ── AGREGAÇÃO ── */
+/* -- AGREGAÇÃO -- */
 function getAggregated() {
   const eqIdx = activeEqs.map(e=>ALL_EQ.indexOf(e)).filter(i=>i>=0);
   const labels = activeEqs;
@@ -744,7 +752,7 @@ function getAggregated() {
   return {labels,prev,real,adr,mcu,dentro,fora,semLabels,semVals,totalPrev,globalAdr};
 }
 
-/* ── CHARTS ── */
+/* -- CHARTS -- */
 const YELLOW='#F8C100', GREEN='#1D9E75', RED='#E24B4A', BLUE='#378ADD';
 const tickC='rgba(80,80,80,.9)', gridC='rgba(0,0,0,.06)';
 let charts = {};
@@ -846,13 +854,13 @@ function updateCharts() {
     reprCount.textContent=sem.repr.length+' serviço'+(sem.repr.length!==1?'s':'');
     reprEl.innerHTML=sem.repr.map(r=>`<div class="repr-li"><div class="repr-dot"></div><span class="repr-num">${r.num}</span><span>${r.txt}</span></div>`).join('');
   } else {
-    alertasEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">— selecione uma única semana —</div>';
+    alertasEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">- selecione uma única semana -</div>';
     reprCount.textContent='';
-    reprEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">— selecione uma única semana —</div>';
+    reprEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">- selecione uma única semana -</div>';
   }
 }
 
-/* ── IMPORTAÇÃO ── */
+/* -- IMPORTAÇÃO -- */
 function detectFileType(filename, rows) {
   const name=filename.toLowerCase();
   const flat=rows?rows.flat().map(c=>String(c).toLowerCase()):[];
@@ -861,7 +869,7 @@ function detectFileType(filename, rows) {
   if(flat.some(c=>c==='o.s.')&&flat.some(c=>c.includes('codigo serviço'))) return {type:'os',label:'Ordens de Serviço'};
   if(flat.some(c=>c.includes('hr.in'))||flat.some(c=>c.includes('hr.fim'))) return {type:'apontamento',label:'Apontamento de Mão de Obra'};
   if(flat.some(c=>c.includes('pré-os')||c.includes('pre-os'))) return {type:'preos',label:'Pré-Ordens'};
-  if(flat.some(c=>c.includes('código_material')||c.includes('n° solicitação'))) return {type:'material',label:'Solicitação de Material'};
+  if(flat.some(c=>c.includes('código_material')||c.includes('no solicitação'))) return {type:'material',label:'Solicitação de Material'};
   if(name.includes('progsem')||name.includes('prog_sem')||name.includes('programacao')) return {type:'progsem',label:'Programação Semanal'};
   if(name.includes('os_cal')||name.includes('os_mec')||name.includes('os_civ')) return {type:'os',label:'Ordens de Serviço'};
   if(name.includes('apontamento')) return {type:'apontamento',label:'Apontamento'};
@@ -900,6 +908,7 @@ function parseProgSemanal(rows) {
 
 async function salvarProgSemanal(registros) {
   if(!registros.length){showToast('Nenhum registro encontrado','ti-alert-circle',5000);return false;}
+  if(!sb){showToast('Sem conexão com o banco de dados','ti-alert-circle',5000);return false;}
   const {semana,ano}=registros[0];
   const {data:existing}=await sb.from('programacao_semanal').select('id',{count:'exact',head:true}).eq('semana',semana).eq('ano',ano);
   if(existing&&existing.length>0){
@@ -920,32 +929,169 @@ Deseja substituir os dados?`);
 
 function handleDrop(e){e.preventDefault();document.getElementById('dz').classList.remove('over');const f=e.dataTransfer.files[0];if(f)handleFile(f);}
 
+/* -- PARSER PDF - texto do TOTVS via PDF.js módulo ES -- */
+async function lerTextoPDF(file) {
+  const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  /* Carregar PDF.js sob demanda, apenas quando necessário */
+  if (!window._pdfjsLib) {
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = PDFJS_URL;
+      s.onload = () => {
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        window._pdfjsLib = pdfjsLib;
+        res();
+      };
+      s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  const buf    = await file.arrayBuffer();
+  const pdfDoc = await window._pdfjsLib.getDocument({data: buf}).promise;
+  let texto = '';
+  for (let p = 1; p <= pdfDoc.numPages; p++) {
+    const page    = await pdfDoc.getPage(p);
+    const content = await page.getTextContent();
+    /* Agrupar itens por linha usando posição Y */
+    const byY = {};
+    content.items.forEach(item => {
+      const y = Math.round(item.transform[5]);
+      if (!byY[y]) byY[y] = [];
+      byY[y].push(item.str);
+    });
+    /* Ordenar linhas de cima para baixo (Y maior = mais alto na página) */
+    Object.keys(byY).sort((a,b)=>b-a).forEach(y => {
+      texto += byY[y].join(' ').trim() + '
+';
+    });
+  }
+  return texto;
+}
+
+function parseProgSemanalPDF(texto) {
+  const registros = [];
+  let equipeAtual = '', equipeDesc = '';
+  let semana = null, ano = null, dataInicio = null, dataFim = null;
+
+  /* Detectar semana e período */
+  const mSem = texto.match(/PROGRAMA[ÇC][AÃ]O\s+SEM\s*(\d+)/i) ||
+               texto.match(/Prog\.Semanal\s*:\s*\d+\s*-[^:]+SEM\s*(\d+)/i) ||
+               texto.match(/SEM\s+(\d+)\s+\d{2}\/\d{2}/i);
+  if (mSem) semana = parseInt(mSem[1]);
+
+  const mIni = texto.match(/In[ií]cio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+  const mFim = texto.match(/Fim\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+  if (mIni) { dataInicio = mIni[1]; ano = parseInt(mIni[1].split('/')[2]); }
+  if (mFim)   dataFim = mFim[1];
+
+  /* Processar linha a linha */
+  const linhas = texto.split('
+').map(l => l.trim()).filter(Boolean);
+  linhas.forEach(linha => {
+    /* Detectar cabeçalho de equipe */
+    const mEq = linha.match(/Equipe:\s*([A-Z0-9]+)\s*[--]\s*(.+)/i);
+    if (mEq) { equipeAtual = mEq[1].trim(); equipeDesc = mEq[2].trim(); return; }
+
+    /* Detectar linha de serviço: começa com 5+ dígitos */
+    const partes = linha.split(/\s+/);
+    const osNum  = partes[0];
+    if (!/^\d{5,}$/.test(osNum)) return;
+    if (!equipeAtual) return;
+
+    /* H-h é o último token no formato NN.NN */
+    const mHH = linha.match(/(\d{1,3}[.,]\d{2})\s*$/);
+    const hh   = mHH ? parseFloat(mHH[1].replace(',','.')) : null;
+
+    /* Tudo entre OS e H-h é descrição + equipamento */
+    const semOS  = linha.slice(osNum.length).trim();
+    const semHH  = mHH ? semOS.slice(0, semOS.lastIndexOf(mHH[1])).trim() : semOS;
+
+    /* Equipamento: último token que parece código (letras+números) */
+    const tokensResto = semHH.split(/\s+/);
+    const mEqCode = tokensResto.slice().reverse().find(t => /^[A-Z]{2,5}\d{2,6}$/i.test(t));
+    const equipamento = mEqCode || '';
+    const descricao   = equipamento ? semHH.replace(new RegExp(equipamento+'\s*$'),'').trim() : semHH;
+
+    registros.push({
+      semana, ano,
+      data_inicio: dataInicio, data_fim: dataFim,
+      os: osNum, descricao, equipamento,
+      equipe: equipeAtual, equipe_desc: equipeDesc,
+      hh_previsto: hh,
+      data_inicio_serv: '', hora_inicio: '',
+      data_fim_serv:    '', hora_fim:    '',
+    });
+  });
+  return { registros, semana, ano, dataInicio, dataFim };
+}
+
 async function handleFile(file) {
-  if(!file) return;
-  showToast('Lendo '+file.name+'…','ti-loader');
-  const reader=new FileReader();
-  reader.onload=async ev=>{
-    try{
-      const wb=XLSX.read(ev.target.result,{type:'array'});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-      const detected=detectFileType(file.name,rows);
-      if(detected.type==='progsem'){
-        const {registros,semana,ano}=parseProgSemanal(rows);
-        const semInfo=semana?`Semana ${semana}${ano?' · '+ano:''}`:'semana não identificada';
-        if(!registros.length){addHistRow(file.name,detected.label,false,'Nenhum serviço encontrado');showToast('Nenhum serviço encontrado','ti-alert-circle',5000);return;}
-        showToast(semInfo+' · '+registros.length+' serviços · salvando…','ti-calendar',4000);
-        const saved=await salvarProgSemanal(registros);
-        if(saved){addHistRow(file.name,'Prog. Semanal — '+semInfo,true,'OK · '+saved+' registros');showToast('Salvo: '+saved+' serviços','ti-check',5000);}
-        else addHistRow(file.name,detected.label,false,'Erro ao salvar');
-      } else {
-        const dataRows=rows.filter(r=>r.some(c=>String(c).trim())).length;
-        addHistRow(file.name,detected.label,true,'Identificado · '+dataRows+' linhas');
-        showToast('Identificado: '+detected.label+' (módulo em desenvolvimento)','ti-info-circle',5000);
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  showToast('Lendo ' + file.name + '...', 'ti-loader');
+
+  /* -- PDF -- */
+  if (ext === 'pdf') {
+    try {
+      showToast('Carregando leitor de PDF...', 'ti-loader', 4000);
+      const texto = await lerTextoPDF(file);
+      const { registros, semana, ano } = parseProgSemanalPDF(texto);
+      const semInfo = semana ? `Semana ${semana}${ano ? '  .  ' + ano : ''}` : 'semana não identificada';
+
+      if (!registros.length) {
+        addHistRow(file.name, 'Prog. Semanal PDF', false, 'Nenhum serviço extraído');
+        showToast('Nenhum serviço encontrado no PDF. Verifique se é gerado pelo TOTVS.', 'ti-alert-circle', 6000);
+        return;
       }
-    } catch(err){
-      addHistRow(file.name,'Erro',false,'Erro: '+err.message);
-      showToast('Erro ao ler arquivo','ti-alert-circle',5000);
+      showToast(semInfo + '  .  ' + registros.length + ' serviços  .  salvando...', 'ti-calendar', 4000);
+      const saved = await salvarProgSemanal(registros);
+      if (saved) {
+        addHistRow(file.name, 'Prog. Semanal PDF - ' + semInfo, true, 'OK  .  ' + saved + ' registros');
+        showToast('PDF salvo: ' + saved + ' serviços da ' + semInfo, 'ti-check', 5000);
+      } else {
+        addHistRow(file.name, 'Prog. Semanal PDF', false, 'Erro ao salvar');
+      }
+    } catch (err) {
+      console.error(err);
+      addHistRow(file.name, 'Prog. Semanal PDF', false, 'Erro: ' + err.message);
+      showToast('Erro ao ler PDF: ' + err.message, 'ti-alert-circle', 6000);
+    }
+    return;
+  }
+
+  /* -- EXCEL / CSV -- */
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    try {
+      const wb   = XLSX.read(ev.target.result, {type:'array'});
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      const detected = detectFileType(file.name, rows);
+      if (detected.type === 'progsem') {
+        const {registros, semana, ano} = parseProgSemanal(rows);
+        const semInfo = semana ? `Semana ${semana}${ano?'  .  '+ano:''}` : 'semana não identificada';
+        if (!registros.length) {
+          addHistRow(file.name, detected.label, false, 'Nenhum serviço encontrado');
+          showToast('Nenhum serviço encontrado no arquivo.', 'ti-alert-circle', 5000);
+          return;
+        }
+        showToast(semInfo + '  .  ' + registros.length + ' serviços  .  salvando...', 'ti-calendar', 4000);
+        const saved = await salvarProgSemanal(registros);
+        if (saved) {
+          addHistRow(file.name, 'Prog. Semanal - ' + semInfo, true, 'OK  .  ' + saved + ' registros');
+          showToast('Salvo: ' + saved + ' serviços', 'ti-check', 5000);
+        } else {
+          addHistRow(file.name, detected.label, false, 'Erro ao salvar');
+        }
+      } else {
+        const dataRows = rows.filter(r => r.some(c => String(c).trim())).length;
+        addHistRow(file.name, detected.label, true, 'Identificado  .  ' + dataRows + ' linhas');
+        showToast('Identificado: ' + detected.label + ' (módulo em desenvolvimento)', 'ti-info-circle', 5000);
+      }
+    } catch (err) {
+      addHistRow(file.name, 'Erro', false, 'Erro: ' + err.message);
+      showToast('Erro ao ler arquivo: ' + err.message, 'ti-alert-circle', 5000);
     }
   };
   reader.readAsArrayBuffer(file);
@@ -959,7 +1105,7 @@ function addHistRow(name,type,ok,badge){
   document.getElementById('hist-list').insertAdjacentHTML('afterbegin',`<div class="hist-row"><i class="ti ${icon}" style="color:${color}"></i><span class="hist-name" title="${name}">${name}</span><span class="hist-date">hoje ${time}</span><span class="hist-badge ${ok?'hb-ok':'hb-err'}">${badge}</span></div>`);
 }
 
-/* ── INICIALIZAÇÃO (após todos os scripts externos carregarem) ── */
+/* -- INICIALIZAÇÃO (após todos os scripts externos carregarem) -- */
 window.addEventListener('load', function() {
   const base={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{}}};
 
