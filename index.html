@@ -629,10 +629,12 @@ body {
 </div>
 
 <script>
-/* ── CONFIG PDF.js ── */
-if (typeof pdfjsLib !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+/* ── CONFIG PDF.js — configurado após carregamento ── */
+function initPDFjs() {
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
 }
 
 /* ── CONFIG SUPABASE ──
@@ -1300,8 +1302,7 @@ function updateCharts() {
 }
 
 /* ── DADOS INICIAIS ── */
-const eq   = ALL_EQ;
-const { prev, real, adr, semVals } = getAggregated();
+const eq = ALL_EQ;
 
 const tickC='rgba(80,80,80,.9)';
 const gridC='rgba(0,0,0,.06)';
@@ -1341,8 +1342,8 @@ const midPct = {
       const b1 = m1[i];
       const midX = (b0.x + b1.x) / 2;
       const topY = Math.min(b0.y, b1.y) - 7;
-      const rData = chart._prevData || prev;
-      const pData = chart._realData || real;
+      const rData = chart.data.datasets[0].data;
+      const pData = chart.data.datasets[1].data;
       const pct = rData[i] ? Math.round((pData[i]||0) / rData[i] * 100) : 0;
       ctx.save();
       ctx.font = '600 10px IBM Plex Sans, sans-serif';
@@ -1362,9 +1363,10 @@ const base = {
 };
 
 /* C1 — H-h programado */
+const _d0 = getAggregated();
 charts.c1 = new Chart(document.getElementById('c1'), {
   type: 'bar',
-  data: { labels: eq, datasets: [{ data: prev, backgroundColor: YELLOW, borderRadius: 5, _fmt: v => v+'h' }] },
+  data: { labels: _d0.labels, datasets: [{ data: _d0.prev, backgroundColor: YELLOW, borderRadius: 5, _fmt: v => v+'h' }] },
   options: { ...base, scales: {
     x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
     y: { ticks: { color: tickC, font: { size: 10 }, callback: v => v+'h' }, grid: { color: gridC } }
@@ -1374,7 +1376,7 @@ charts.c1 = new Chart(document.getElementById('c1'), {
 /* C2 — Aderência por equipe */
 charts.c2 = new Chart(document.getElementById('c2'), {
   type: 'bar',
-  data: { labels: eq, datasets: [{ data: adr, backgroundColor: adr.map(v => v>=80?GREEN:RED), borderRadius: 5, _fmt: v => v+'%' }] },
+  data: { labels: _d0.labels, datasets: [{ data: _d0.adr, backgroundColor: _d0.adr.map(v => v>=80?GREEN:RED), borderRadius: 5, _fmt: v => v+'%' }] },
   options: { ...base, scales: {
     x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
     y: { min: 0, max: 100, ticks: { color: tickC, font: { size: 10 }, callback: v => v+'%' }, grid: { color: gridC } }
@@ -1396,10 +1398,10 @@ charts.c4 = new Chart(document.getElementById('c4'), {
   type: 'bar',
   data: {
     _showMid: true,
-    labels: eq,
+    labels: _d0.labels,
     datasets: [
-      { label: 'Previsto',  data: [...prev], backgroundColor: YELLOW, borderRadius: 5, _noLabel: true },
-      { label: 'Realizado', data: [...real], backgroundColor: real.map((r,i) => r/prev[i]>=0.8?GREEN:RED), borderRadius: 5, _noLabel: true }
+      { label: 'Previsto',  data: [..._d0.prev], backgroundColor: YELLOW, borderRadius: 5, _noLabel: true },
+      { label: 'Realizado', data: [..._d0.real], backgroundColor: _d0.real.map((r,i) => r/_d0.prev[i]>=0.8?GREEN:RED), borderRadius: 5, _noLabel: true }
     ]
   },
   options: {
@@ -1419,11 +1421,11 @@ charts.c4 = new Chart(document.getElementById('c4'), {
 charts.c5 = new Chart(document.getElementById('c5'), {
   type: 'bar',
   data: {
-    labels: eq,
+    labels: _d0.labels,
     datasets: [
-      { label: 'MCU',               data: [42,30,8,6,10],    backgroundColor: RED,   borderRadius: 0, _noLabel: true },
-      { label: 'Dentro da prog.',   data: [210,140,52,60,42], backgroundColor: GREEN, borderRadius: 0, _noLabel: true },
-      { label: 'Fora da prog.',     data: [137,50,20,16,39],  backgroundColor: BLUE,  borderRadius: 0, _noLabel: true }
+      { label: 'MCU',             data: _d0.mcu,    backgroundColor: RED,   borderRadius: 0, _noLabel: true },
+      { label: 'Dentro da prog.', data: _d0.dentro, backgroundColor: GREEN, borderRadius: 0, _noLabel: true },
+      { label: 'Fora da prog.',   data: _d0.fora,   backgroundColor: BLUE,  borderRadius: 0, _noLabel: true }
     ]
   },
   options: {
@@ -1441,9 +1443,9 @@ charts.c5 = new Chart(document.getElementById('c5'), {
 });
 
 /* Renderizar estado inicial */
+initPDFjs();
 updateCharts();
 </script>
 
 </body>
 </html>
-
