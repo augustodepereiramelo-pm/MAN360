@@ -151,8 +151,8 @@ body {
 /* ── TOPBAR ── */
 .topbar {
   height: var(--topbar-h);
-  background: var(--dark);
-  border-bottom: 1px solid var(--border);
+  background: var(--yellow);
+  border-bottom: none;
   display: flex; align-items: center;
   padding: 0 16px; gap: 10px;
   flex-shrink: 0;
@@ -160,25 +160,25 @@ body {
 
 .page-title {
   font-size: 13px; font-weight: 600;
-  color: var(--yellow);
+  color: #1a1a1a;
   flex: 1;
   display: flex; align-items: center; gap: 8px;
   letter-spacing: .02em;
 }
-.page-title i { color: var(--yellow); font-size: 16px; }
+.page-title i { color: #1a1a1a; font-size: 16px; }
 
 .top-chip {
   height: 28px; padding: 0 12px;
   font-size: 11px; font-family: var(--font);
   border-radius: 99px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-2);
+  border: 1px solid rgba(0,0,0,.2);
+  background: rgba(0,0,0,.08);
+  color: #1a1a1a;
   cursor: pointer;
   display: flex; align-items: center; gap: 5px;
-  transition: border-color .15s, color .15s;
+  transition: background .15s;
 }
-.top-chip:hover { border-color: var(--yellow); color: var(--yellow); }
+.top-chip:hover { background: rgba(0,0,0,.15); }
 
 /* ── CONTENT ── */
 .content {
@@ -496,7 +496,7 @@ body {
     <div class="metrics">
       <div class="metric">
         <div class="m-label">H-h programadas</div>
-        <div class="m-val" id="m-hh" style="color:var(--yellow)">1.363h</div>
+        <div class="m-val" id="m-hh" style="color:#C8A000;font-weight:700;">1.363h</div>
         <div class="m-sub">5 equipes · semana atual</div>
       </div>
       <div class="metric">
@@ -556,42 +556,18 @@ body {
     <!-- PONTOS DE ATENÇÃO + REPROGRAMADAS -->
     <div class="two-col">
 
-      <div class="card">
+      <div class="card" id="card-alertas">
         <div class="card-title"><i class="ti ti-alert-triangle c-red"></i> Pontos de atenção</div>
-        <div class="alert-list">
-          <div class="alert-li">
-            <i class="ti ti-trending-down c-red"></i>
-            <div><strong>CIV1 com aderência de 55%</strong> — abaixo da meta de 80%.</div>
-          </div>
-          <div class="alert-li">
-            <i class="ti ti-pause c-amber"></i>
-            <div><strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · aguardando compra desde sem. 6.</div>
-          </div>
-          <div class="alert-li">
-            <i class="ti ti-clock c-blue"></i>
-            <div><strong>Pré-OS 7707 há 6 dias sem conversão</strong> — média é 2,3 dias · CAL1.</div>
-          </div>
-          <div class="alert-li">
-            <i class="ti ti-chart-bar c-gray"></i>
-            <div><strong>MCU em 18% das H-h</strong> — referência saudável abaixo de 15%.</div>
-          </div>
-        </div>
+        <div id="alertas-body" class="alert-list"></div>
       </div>
 
-      <div class="card">
+      <div class="card" id="card-repr">
         <div class="card-title">
           <i class="ti ti-arrows-right c-amber"></i>
           Reprogramadas não executadas
-          <span style="margin-left:4px;">6 serviços</span>
+          <span id="repr-count" style="margin-left:4px;"></span>
         </div>
-        <div class="alert-list">
-          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">65156</span><span>CAL3 · SSMA adequar ponto condensado · 36h</span></div>
-          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">64534</span><span>CIV1 · Canaleta embebição moenda · 72h</span></div>
-          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">65696</span><span>CIV1 · Concretar piso tratamento caldo · 28h</span></div>
-          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">63845</span><span>CAL1 · Alinhar raspas filtro rotativo 3 · 8h</span></div>
-          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">66409</span><span>CAL1 · Soldar cantoneira travamento PEIP · 10h</span></div>
-          <div class="repr-li"><div class="repr-dot"></div><span class="repr-num">64915</span><span>CAL1 · Vazamento tanque caldo dosado · 8h</span></div>
-        </div>
+        <div id="repr-body" class="alert-list"></div>
       </div>
 
     </div>
@@ -787,10 +763,61 @@ const ALL_EQ = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
 
 /* Dados por semana: prev, real, adr, mcu, dentro, fora */
 const DATA_SEM = {
-  5: { prev:[350,200,75,70,85], real:[280,155,65,63,60], adr:[80,78,87,90,71], mcu:[35,25,7,5,9],  dentro:[200,110,50,50,40], fora:[115,65,18,15,36] },
-  6: { prev:[370,210,78,75,88], real:[305,168,68,68,58], adr:[82,80,87,91,66], mcu:[38,27,8,5,9],  dentro:[210,120,50,55,38], fora:[122,48,18,13,38] },
-  7: { prev:[380,215,79,80,90], real:[285,160,62,70,54], adr:[75,74,78,88,60], mcu:[40,28,7,6,10], dentro:[205,115,50,55,38], fora:[130,47,19,14,38] },
-  8: { prev:[389,220,80,82,91], real:[264,165,64,74,50], adr:[68,75,80,90,55], mcu:[42,30,8,6,10], dentro:[210,140,52,60,42], fora:[137,50,20,16,39] },
+  5: {
+    prev:[350,200,75,70,85], real:[280,155,65,63,60], adr:[80,78,87,90,71], mcu:[35,25,7,5,9], dentro:[200,110,50,50,40], fora:[115,65,18,15,36],
+    alertas:[
+      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 71%</strong> — abaixo da meta de 80%.'},
+      {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 14% das H-h</strong> — dentro da faixa saudável.'},
+    ],
+    repr:[
+      {num:'63200', txt:'CAL1 · Reforma caixa decantador · 18h'},
+      {num:'62980', txt:'MEC1 · Substituir rolamento bomba refluxo · 8h'},
+    ]
+  },
+  6: {
+    prev:[370,210,78,75,88], real:[305,168,68,68,58], adr:[82,80,87,91,66], mcu:[38,27,8,5,9], dentro:[210,120,50,55,38], fora:[122,48,18,13,38],
+    alertas:[
+      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 66%</strong> — abaixo da meta de 80%.'},
+      {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7621 há 5 dias sem conversão</strong> — média é 2,3 dias · MEC1.'},
+    ],
+    repr:[
+      {num:'64091', txt:'CIV1 · Instalar canaleta drenos condensado · 70h'},
+      {num:'63845', txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'},
+      {num:'64254', txt:'CIV1 · Concretar buraco asfalto caldeiras · 88h'},
+    ]
+  },
+  7: {
+    prev:[380,215,79,80,90], real:[285,160,62,70,54], adr:[75,74,78,88,60], mcu:[40,28,7,6,10], dentro:[205,115,50,55,38], fora:[130,47,19,14,38],
+    alertas:[
+      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 60%</strong> — abaixo da meta de 80%.'},
+      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>MEC1 com aderência de 75%</strong> — abaixo da meta de 80%.'},
+      {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · desde sem. 6.'},
+      {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 17% das H-h</strong> — ligeiramente acima de 15%.'},
+    ],
+    repr:[
+      {num:'65156', txt:'CAL3 · SSMA adequar ponto condensado · 36h'},
+      {num:'64534', txt:'CIV1 · Canaleta embebição moenda · 72h'},
+      {num:'65696', txt:'CIV1 · Concretar piso tratamento caldo · 28h'},
+      {num:'63845', txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'},
+    ]
+  },
+  8: {
+    prev:[389,220,80,82,91], real:[264,165,64,74,50], adr:[68,75,80,90,55], mcu:[42,30,8,6,10], dentro:[210,140,52,60,42], fora:[137,50,20,16,39],
+    alertas:[
+      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 55%</strong> — abaixo da meta de 80%.'},
+      {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · desde sem. 6.'},
+      {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7707 há 6 dias sem conversão</strong> — média 2,3 dias · CAL1.'},
+      {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 18% das H-h</strong> — acima da faixa saudável (15%).'},
+    ],
+    repr:[
+      {num:'65156', txt:'CAL3 · SSMA adequar ponto condensado · 36h'},
+      {num:'64534', txt:'CIV1 · Canaleta embebição moenda · 72h'},
+      {num:'65696', txt:'CIV1 · Concretar piso tratamento caldo · 28h'},
+      {num:'63845', txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'},
+      {num:'66409', txt:'CAL1 · Soldar cantoneira travamento PEIP · 10h'},
+      {num:'64915', txt:'CAL1 · Vazamento tanque caldo dosado · 8h'},
+    ]
+  },
 };
 const SEM_LABELS = { 5:'Sem 5', 6:'Sem 6', 7:'Sem 7', 8:'Sem 8' };
 
@@ -893,6 +920,37 @@ function updateCharts() {
   charts.c5.data.datasets[1].data = d.dentro;
   charts.c5.data.datasets[2].data = d.fora;
   charts.c5.update();
+
+  /* Alertas e reprogramadas — só quando 1 semana selecionada */
+  const alertasEl = document.getElementById('alertas-body');
+  const reprEl    = document.getElementById('repr-body');
+  const reprCount = document.getElementById('repr-count');
+
+  if (activeSems.length === 1) {
+    const sem = DATA_SEM[activeSems[0]];
+
+    /* Alertas */
+    alertasEl.innerHTML = sem.alertas.map(a => `
+      <div class="alert-li">
+        <i class="ti ${a.icon} ${a.cls}"></i>
+        <div>${a.txt}</div>
+      </div>`).join('');
+
+    /* Reprogramadas */
+    reprCount.textContent = sem.repr.length + ' serviço' + (sem.repr.length !== 1 ? 's' : '');
+    reprEl.innerHTML = sem.repr.map(r => `
+      <div class="repr-li">
+        <div class="repr-dot"></div>
+        <span class="repr-num">${r.num}</span>
+        <span>${r.txt}</span>
+      </div>`).join('');
+
+  } else {
+    /* Múltiplas semanas — exibir traço */
+    alertasEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">— selecione uma única semana para ver os alertas —</div>';
+    reprCount.textContent = '';
+    reprEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">— selecione uma única semana —</div>';
+  }
 }
 
 /* ── DADOS INICIAIS ── */
@@ -1035,6 +1093,9 @@ charts.c5 = new Chart(document.getElementById('c5'), {
     }
   }
 });
+
+/* Renderizar estado inicial */
+updateCharts();
 </script>
 
 </body>
