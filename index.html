@@ -1206,7 +1206,7 @@ async function handleFile(file) {
         const regs=parseApontamento(rows);
         if(!regs.length){ addHistRow(file.name,det.label,false,'0 apontamentos encontrados'); showToast('Nenhum apontamento encontrado','ti-alert-circle',5000); return; }
         showToast(regs.length+' apontamentos . salvando...','ti-loader',3000);
-        saved=await salvarNoBanco('apontamentos',regs,'cracha,data_apontamento,hora_inicio,os');
+        saved=await salvarNoBanco('apontamentos',regs,'cracha,data_apontamento,hora_fim,os');
         if(saved){ addHistRow(file.name,det.label,true,'OK . '+saved+' apontamentos'); showToast('Salvo: '+saved+' apontamentos','ti-check',5000); }
         else addHistRow(file.name,det.label,false,'Erro ao salvar');
 
