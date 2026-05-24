@@ -711,22 +711,28 @@ async function carregarSemanas() {
     agrupado[s][e].count += 1;
   });
 
+  /* Logar dados recebidos para debug */
+  console.log('Dados do banco:', data.length, 'registros');
+  const semAnos = [...new Set(data.map(r => r.semana + '/' + r.ano))];
+  console.log('Semanas/anos no banco:', semAnos);
+
   /* Montar dadosPorSem no formato esperado pelos graficos */
   dadosPorSem = {};
   Object.keys(agrupado).forEach(s => {
     s = parseInt(s);
     dadosPorSem[s] = {};
     ALL_EQ.forEach(eq => {
-      const info = agrupado[s][eq] || { hh: 0 };
+      const info = agrupado[s] && agrupado[s][eq] ? agrupado[s][eq] : { hh: 0 };
       dadosPorSem[s][eq] = {
-        prev:   info.hh,
-        real:   0,   /* apontamento ainda nao importado */
+        prev:   Math.round((info.hh || 0) * 100) / 100,
+        real:   0,
         adr:    0,
         mcu:    0,
         dentro: 0,
         fora:   0,
       };
     });
+    console.log('Sem ' + s + ':', JSON.stringify(dadosPorSem[s]));
   });
 
     semsDisponiveis = Object.keys(dadosPorSem).map(Number).sort((a,b)=>a-b);
@@ -997,30 +1003,36 @@ function parseProgSemanal(rows) {
   let equipeAtual = '', equipeDesc = '';
   let semana = null, ano = null, dataInicio = null, dataFim = null;
 
-  rows.slice(0, 5).forEach(row => {
-    const txt = row.map(c => String(c || '')).join(' ');
-    const mSemNovo = txt.match(/SEM\s+(\d+)\s+(\d{2})\/(\d{2})-(\d{2})\/(\d{2})\/(\d{2,4})/i);
-    if (mSemNovo) {
-      semana = parseInt(mSemNovo[1]);
-      const anoRaw = mSemNovo[6];
-      ano = anoRaw.length === 2 ? 2000 + parseInt(anoRaw) : parseInt(anoRaw);
-      dataInicio = mSemNovo[2] + '/' + mSemNovo[3] + '/' + ano;
-      dataFim    = mSemNovo[4] + '/' + mSemNovo[5] + '/' + ano;
-      return;
-    }
-    if (!semana) {
-      const mSem = txt.match(/SEM\s*(\d+)/i);
-      if (mSem) semana = parseInt(mSem[1]);
-    }
-    const mIni = txt.match(/In[iI]cio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
-    const mFim = txt.match(/Fim\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+  /* Juntar primeiras 10 linhas num texto so para detectar semana */
+  const headerText = rows.slice(0, 10).map(row => row.map(c => String(c || '')).join(' ')).join(' ');
+
+  /* Formato novo xlsx: "SEM 8 18/05-24/05/26" */
+  const mSemNovo = headerText.match(/SEM\s*(\d+)\s+(\d{2})\/(\d{2})-(\d{2})\/(\d{2})\/(\d{2,4})/i);
+  if (mSemNovo) {
+    semana = parseInt(mSemNovo[1]);
+    const anoRaw = mSemNovo[6];
+    ano = anoRaw.length === 2 ? 2000 + parseInt(anoRaw) : parseInt(anoRaw);
+    dataInicio = mSemNovo[2] + '/' + mSemNovo[3] + '/' + ano;
+    dataFim    = mSemNovo[4] + '/' + mSemNovo[5] + '/' + ano;
+  }
+
+  /* Formato com datas longas: "Inicio : 18/05/2026   Fim : 24/05/2026" */
+  if (!semana) {
+    const mSem = headerText.match(/SEM\s*(\d+)/i);
+    if (mSem) semana = parseInt(mSem[1]);
+  }
+  if (!dataInicio) {
+    const mIni = headerText.match(/In[iI]cio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+    const mFim = headerText.match(/Fim\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
     if (mIni) { dataInicio = mIni[1]; ano = parseInt(mIni[1].split('/')[2]); }
     if (mFim)   dataFim = mFim[1];
-    if (!dataInicio) {
-      const mPer = txt.match(/(\d{2}\/\d{2}\/\d{4})/g);
-      if (mPer && mPer.length >= 2) { dataInicio = mPer[0]; dataFim = mPer[1]; ano = parseInt(mPer[0].split('/')[2]); }
-    }
-  });
+  }
+  if (!dataInicio) {
+    const mPer = headerText.match(/(\d{2}\/\d{2}\/\d{4})/g);
+    if (mPer && mPer.length >= 2) { dataInicio = mPer[0]; dataFim = mPer[1]; ano = parseInt(mPer[0].split('/')[2]); }
+  }
+
+  rows.slice(0, 10).forEach(row => { void row; }); /* dummy - mantido por compatibilidade */
 
   rows.forEach(row => {
     const cells = row.map(c => String(c || '').trim());
