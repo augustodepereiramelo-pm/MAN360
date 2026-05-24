@@ -622,660 +622,389 @@ body {
 </div>
 
 <script>
-
-/* ── CONFIG SUPABASE ──
-   Para migrar para outra hospedagem, altere apenas estas duas linhas */
+/* ═══════════════════════════════════════════════
+   MAN360 — Programação Semanal
+   Config: altere só estas 2 linhas para migrar
+   ═══════════════════════════════════════════════ */
 const SUPABASE_URL = 'https://gwejwvsmmogzdpgyaggf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3ZWp3dnNtbW9nemRwZ3lhZ2dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NTU0NjIsImV4cCI6MjA5NTEzMTQ2Mn0.HgsOjYyHTOiCtjblADpCcwi7SNkK17jjMTdG4Z7H8Uc';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-/* ── SIDEBAR ── */
-function toggleSB() {
-  document.getElementById('sb').classList.toggle('open');
-}
+/* ── DADOS FICTÍCIOS POR SEMANA ── */
+const ALL_EQ = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
+const DATA_SEM = {
+  5:{ prev:[350,200,75,70,85], real:[280,155,65,63,60], adr:[80,78,87,90,71], mcu:[35,25,7,5,9], dentro:[200,110,50,50,40], fora:[115,65,18,15,36],
+      alertas:[
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 71%</strong> — abaixo da meta de 80%.'},
+        {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 14% das H-h</strong> — dentro da faixa saudável.'},
+      ],
+      repr:[{num:'63200',txt:'CAL1 · Reforma caixa decantador · 18h'},{num:'62980',txt:'MEC1 · Substituir rolamento bomba · 8h'}]
+  },
+  6:{ prev:[370,210,78,75,88], real:[305,168,68,68,58], adr:[82,80,87,91,66], mcu:[38,27,8,5,9], dentro:[210,120,50,55,38], fora:[122,48,18,13,38],
+      alertas:[
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 66%</strong> — abaixo da meta de 80%.'},
+        {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7621 há 5 dias sem conversão</strong> — CAL1.'},
+      ],
+      repr:[{num:'64091',txt:'CIV1 · Instalar canaleta drenos · 70h'},{num:'63845',txt:'CAL1 · Alinhar raspas filtro · 8h'},{num:'64254',txt:'CIV1 · Concretar buraco asfalto · 88h'}]
+  },
+  7:{ prev:[380,215,79,80,90], real:[285,160,62,70,54], adr:[75,74,78,88,60], mcu:[40,28,7,6,10], dentro:[205,115,50,55,38], fora:[130,47,19,14,38],
+      alertas:[
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 60%</strong> — abaixo da meta de 80%.'},
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>MEC1 com aderência de 75%</strong> — abaixo da meta de 80%.'},
+        {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · desde sem. 6.'},
+        {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 17% das H-h</strong> — ligeiramente acima de 15%.'},
+      ],
+      repr:[{num:'65156',txt:'CAL3 · SSMA adequar ponto condensado · 36h'},{num:'64534',txt:'CIV1 · Canaleta embebição moenda · 72h'},{num:'65696',txt:'CIV1 · Concretar piso tratamento caldo · 28h'},{num:'63845',txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'}]
+  },
+  8:{ prev:[389,220,80,82,91], real:[264,165,64,74,50], adr:[68,75,80,90,55], mcu:[42,30,8,6,10], dentro:[210,140,52,60,42], fora:[137,50,20,16,39],
+      alertas:[
+        {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 55%</strong> — abaixo da meta de 80%.'},
+        {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · desde sem. 6.'},
+        {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7707 há 6 dias sem conversão</strong> — média 2,3 dias · CAL1.'},
+        {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 18% das H-h</strong> — acima da faixa saudável (15%).'},
+      ],
+      repr:[{num:'65156',txt:'CAL3 · SSMA adequar ponto condensado · 36h'},{num:'64534',txt:'CIV1 · Canaleta embebição moenda · 72h'},{num:'65696',txt:'CIV1 · Concretar piso tratamento caldo · 28h'},{num:'63845',txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'},{num:'66409',txt:'CAL1 · Soldar cantoneira travamento PEIP · 10h'},{num:'64915',txt:'CAL1 · Vazamento tanque caldo dosado · 8h'}]
+  },
+};
+const SEM_LABELS = {5:'Sem 5',6:'Sem 6',7:'Sem 7',8:'Sem 8'};
+let activeSems = [8];
+let activeEqs  = [...ALL_EQ];
 
-/* ── SAFRA: selecionar/limpar todas as semanas ── */
-function selectAllSems(all) {
-  document.querySelectorAll('[name=sem]').forEach(cb => {
-    cb.checked = all;
-    cb.dispatchEvent(new Event('change'));
-  });
-  if (all) {
-    activeSems = [...document.querySelectorAll('[name=sem]')].map(c => Number(c.value));
-    document.getElementById('sem-label').textContent = 'SAFRA 2026 (todas)';
-  } else {
-    activeSems = [];
-    document.getElementById('sem-label').textContent = 'Nenhuma semana';
-  }
-  updateCharts();
-  document.getElementById('dd-sem').classList.remove('show');
-}
+/* ── UTILITÁRIOS ── */
+function toggleSB() { document.getElementById('sb').classList.toggle('open'); }
 
-
-/* ── DROPDOWNS ── */
 function toggleDD(id) {
-  document.querySelectorAll('.dd-panel').forEach(p => {
-    if (p.id !== id) p.classList.remove('show');
-  });
+  document.querySelectorAll('.dd-panel').forEach(p => { if(p.id!==id) p.classList.remove('show'); });
   document.getElementById(id).classList.toggle('show');
 }
 document.addEventListener('click', e => {
-  if (!e.target.closest('.dd-wrap')) {
-    document.querySelectorAll('.dd-panel').forEach(p => p.classList.remove('show'));
-  }
+  if(!e.target.closest('.dd-wrap')) document.querySelectorAll('.dd-panel').forEach(p=>p.classList.remove('show'));
 });
 
-function updateEqLabel() {
-  const checked = [...document.querySelectorAll('#dd-eq input:checked')].map(i => i.value);
-  document.getElementById('eq-label').textContent = checked.length ? checked.join(', ') : 'Nenhuma equipe';
-  updateCharts();
-}
-
-/* ── TOAST ── */
-function showToast(msg, icon='ti-info-circle', duration=3000) {
+function showToast(msg, icon='ti-info-circle', duration=3500) {
   const t = document.getElementById('toast');
   document.getElementById('toast-msg').textContent = msg;
   document.getElementById('toast-icon').className = 'ti ' + icon;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), duration);
+  setTimeout(()=>t.classList.remove('show'), duration);
 }
 
-/* ── IDENTIFICAR ARQUIVO ── */
-function detectFileType(filename, rows) {
-  const name = filename.toLowerCase();
-  const flat = rows ? rows.flat().map(c => String(c).toLowerCase()) : [];
-  const joined = flat.join(' ');
-
-  /* Pelo conteúdo — mais confiável */
-  if (flat.some(c => c.includes('h-h (hr:mi)')) || joined.includes('prog.semanal') || joined.includes('plano de execução'))
-    return { type: 'progsem', label: 'Programação Semanal' };
-  if (flat.some(c => c === 'o.s.') && flat.some(c => c.includes('codigo serviço')))
-    return { type: 'os', label: 'Ordens de Serviço' };
-  if (flat.some(c => c.includes('hr.in')) || flat.some(c => c.includes('hr.fim')))
-    return { type: 'apontamento', label: 'Apontamento de Mão de Obra' };
-  if (flat.some(c => c.includes('pré-os') || c.includes('pre-os')))
-    return { type: 'preos', label: 'Pré-Ordens de Serviço' };
-  if (flat.some(c => c.includes('código_material') || c.includes('n° solicitação')))
-    return { type: 'material', label: 'Solicitação de Material' };
-
-  /* Fallback pelo nome */
-  if (name.includes('progsem') || name.includes('prog_sem') || name.includes('programacao'))
-    return { type: 'progsem', label: 'Programação Semanal' };
-  if (name.includes('os_cal') || name.includes('os_mec') || name.includes('os_civ') || name.includes('os_ele'))
-    return { type: 'os', label: 'Ordens de Serviço' };
-  if (name.includes('apontamento'))
-    return { type: 'apontamento', label: 'Apontamento de Mão de Obra' };
-  if (name.includes('preos') || name.includes('pre_os'))
-    return { type: 'preos', label: 'Pré-Ordens de Serviço' };
-  if (name.includes('material') || name.includes('solic'))
-    return { type: 'material', label: 'Solicitação de Material' };
-
-  return { type: 'unknown', label: 'Tipo não identificado' };
+/* ── FILTROS ── */
+function updateEqLabel() {
+  activeEqs = [...document.querySelectorAll('#dd-eq input:checked')].map(i=>i.value);
+  document.getElementById('eq-label').textContent = activeEqs.length ? activeEqs.join(', ') : 'Nenhuma equipe';
+  updateCharts();
 }
 
-/* ── PARSER: PROGRAMAÇÃO SEMANAL (Excel/XLS) ──
-   Formato TOTVS: blocos por equipe, linha "Equipe: XXX" seguida de serviços */
-function parseProgSemanal(rows) {
-  const registros = [];
-  let equipeAtual = '';
-  let equipeDesc  = '';
-  let semana = null, ano = null, dataInicio = null, dataFim = null;
-
-  /* Detectar semana e período no cabeçalho */
-  rows.slice(0, 15).forEach(row => {
-    const txt = row.join(' ');
-    /* Padrão: "155 - PROGRAMAÇÃO SEM 8 18/05-24/05/26" */
-    const mSem = txt.match(/SEM\s*(\d+)/i);
-    if (mSem) semana = parseInt(mSem[1]);
-
-    const mPer = txt.match(/(\d{2})\/(\d{2})\/(\d{4})/g);
-    if (mPer && mPer.length >= 2) {
-      dataInicio = mPer[0];
-      dataFim    = mPer[1];
-      ano        = parseInt(mPer[0].split('/')[2]);
-    }
-    /* Formato curto: 18/05-24/05/26 */
-    const mCurto = txt.match(/(\d{2}\/\d{2})-(\d{2}\/\d{2})\/(\d{2})/);
-    if (mCurto && !dataInicio) {
-      dataInicio = mCurto[1] + '/20' + mCurto[3];
-      dataFim    = mCurto[2] + '/20' + mCurto[3];
-      ano        = 2000 + parseInt(mCurto[3]);
-    }
-  });
-
-  rows.forEach((row, ri) => {
-    const cells = row.map(c => String(c).trim());
-    const joined = cells.join(' ');
-
-    /* Detectar linha de equipe: "Equipe: CAL1 - CALDEIRARIA INDUSTRIAL 01" */
-    const mEq = joined.match(/Equipe:\s*([A-Z0-9]+)\s*[-–]\s*(.+)/i);
-    if (mEq) {
-      equipeAtual = mEq[1].trim();
-      equipeDesc  = mEq[2].trim();
-      return;
-    }
-
-    /* Linha de serviço: primeira célula é número de OS (5+ dígitos) */
-    const osNum = cells[0];
-    if (!/^\d{5,}$/.test(osNum)) return;
-
-    /* Colunas do relatório TOTVS:
-       OS | Descrição Serviço | Equipamento | Início | Fim | H-h */
-    const descricao   = cells[1] || '';
-    const equipamento = cells[2] || '';
-    /* Datas vêm como "18/05" → completar com ano */
-    const rawIni = cells[3] || '';
-    const rawFim = cells[4] || '';
-    const hhStr  = cells[5] || cells[6] || '';
-    const hh     = parseFloat(String(hhStr).replace(',', '.')) || null;
-
-    if (!descricao && !equipamento) return; /* linha vazia */
-
-    registros.push({
-      semana:           semana,
-      ano:              ano,
-      data_inicio:      dataInicio,
-      data_fim:         dataFim,
-      os:               osNum,
-      descricao:        descricao,
-      equipamento:      equipamento,
-      equipe:           equipeAtual,
-      equipe_desc:      equipeDesc,
-      hh_previsto:      hh,
-      data_inicio_serv: rawIni,
-      hora_inicio:      cells[4] || '',
-      data_fim_serv:    rawFim,
-      hora_fim:         cells[5] || '',
-    });
-  });
-
-  return { registros, semana, ano, dataInicio, dataFim };
-}
-
-/* ── SALVAR NO SUPABASE ── */
-async function salvarProgSemanal(registros, filename) {
-  if (!registros.length) {
-    showToast('Nenhum registro encontrado no arquivo', 'ti-alert-circle', 5000);
-    return false;
-  }
-
-  const { semana, ano } = registros[0];
-
-  /* Verificar se já existe essa semana/ano no banco */
-  const { data: existing, error: checkErr } = await sb
-    .from('programacao_semanal')
-    .select('id', { count: 'exact', head: true })
-    .eq('semana', semana)
-    .eq('ano', ano);
-
-  if (checkErr) {
-    showToast('Erro ao verificar banco: ' + checkErr.message, 'ti-alert-circle', 5000);
-    return false;
-  }
-
-  /* Se já existe, perguntar antes de sobrescrever */
-  if (existing && existing.length > 0) {
-    const confirmar = confirm(
-      `A Semana ${semana}/${ano} já foi importada anteriormente.
-
-` +
-      `Deseja apagar os dados anteriores e reimportar?
-
-` +
-      `Clique OK para substituir ou Cancelar para manter os dados atuais.`
-    );
-    if (!confirmar) {
-      showToast('Importação cancelada — dados anteriores mantidos.', 'ti-info-circle', 4000);
-      return false;
-    }
-
-    /* Apagar registros anteriores desta semana/ano */
-    const { error: delErr } = await sb
-      .from('programacao_semanal')
-      .delete()
-      .eq('semana', semana)
-      .eq('ano', ano);
-
-    if (delErr) {
-      showToast('Erro ao limpar dados anteriores: ' + delErr.message, 'ti-alert-circle', 5000);
-      return false;
-    }
-    showToast(`Dados anteriores da Semana ${semana} removidos. Reimportando…`, 'ti-loader', 3000);
-  }
-
-  /* Inserir em lotes de 200 */
-  const BATCH = 200;
-  let total = 0;
-  for (let i = 0; i < registros.length; i += BATCH) {
-    const lote = registros.slice(i, i + BATCH);
-    const { error } = await sb.from('programacao_semanal').insert(lote);
-    if (error) {
-      console.error('Erro Supabase:', error);
-      showToast(`Erro ao salvar: ${error.message}`, 'ti-alert-circle', 6000);
-      return false;
-    }
-    total += lote.length;
-  }
-  return total;
-}
-
-/* ── PROCESSAR ARQUIVO ── */
-function handleDrop(e) {
-  e.preventDefault();
-  document.getElementById('dz').classList.remove('over');
-  const file = e.dataTransfer.files[0];
-  if (file) handleFile(file);
-}
-
-async function handleFile(file) {
-  if (!file) return;
-  const ext = file.name.split('.').pop().toLowerCase();
-  showToast(`Lendo ${file.name}…`, 'ti-loader');
-
-
-
-  const reader = new FileReader();
-  reader.onload = async ev => {
-    try {
-      const wb   = XLSX.read(ev.target.result, { type: 'array' });
-      const ws   = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-      const detected = detectFileType(file.name, rows);
-
-      if (detected.type === 'progsem') {
-        showToast('Programação Semanal detectada — processando…', 'ti-loader', 3000);
-        const { registros, semana, ano, dataInicio, dataFim } = parseProgSemanal(rows);
-
-        if (!registros.length) {
-          addHistRow(file.name, detected.label, false, 'Erro · nenhum serviço encontrado');
-          showToast('Nenhum serviço encontrado. Verifique se o arquivo está no formato correto.', 'ti-alert-circle', 6000);
-          return;
-        }
-
-        const semInfo = semana ? `Semana ${semana}${ano ? ' · ' + ano : ''}` : 'semana não identificada';
-        showToast(`${semInfo} · ${registros.length} serviços encontrados · salvando…`, 'ti-calendar', 4000);
-
-        const saved = await salvarProgSemanal(registros, file.name);
-        if (saved) {
-          addHistRow(file.name, `Prog. Semanal — ${semInfo}`, true, `OK · ${saved} registros`);
-          showToast(`Salvo com sucesso: ${saved} serviços da ${semInfo}`, 'ti-check', 5000);
-        } else {
-          addHistRow(file.name, detected.label, false, 'Erro ao salvar no banco');
-        }
-
-      } else {
-        /* Outros tipos — só identificar por ora */
-        const dataRows = rows.filter(r => r.some(c => String(c).trim())).length;
-        addHistRow(file.name, detected.label, true, `Identificado · ${dataRows} linhas`);
-        showToast(`Identificado: ${detected.label} · ${dataRows} linhas (módulo em desenvolvimento)`, 'ti-info-circle', 5000);
-      }
-
-    } catch (err) {
-      console.error(err);
-      addHistRow(file.name, 'Erro na leitura', false, 'Erro · verificar formato');
-      showToast('Erro ao ler o arquivo: ' + err.message, 'ti-alert-circle', 5000);
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-function addHistRow(name, type, ok, badge) {
-  const now = new Date();
-  const time = now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
-  const iconColor = name.endsWith('.pdf') ? 'var(--red-l)' : 'var(--green)';
-  const icon = name.endsWith('.pdf') ? 'ti-file-type-pdf' : 'ti-file-spreadsheet';
-  const html = `
-    <div class="hist-row">
-      <i class="ti ${icon}" style="color:${iconColor}"></i>
-      <span class="hist-name" title="${name}">${name}</span>
-      <span class="hist-date">hoje ${time}</span>
-      <span class="hist-badge ${ok?'hb-ok':'hb-err'}">${badge}</span>
-    </div>`;
-  document.getElementById('hist-list').insertAdjacentHTML('afterbegin', html);
-}
-
-/* ── DADOS BASE (fictícios por semana e equipe) ── */
-const YELLOW='#F8C100', GREEN='#1D9E75', RED='#E24B4A', BLUE='#378ADD';
-
-const ALL_EQ = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
-
-/* Dados por semana: prev, real, adr, mcu, dentro, fora */
-const DATA_SEM = {
-  5: {
-    prev:[350,200,75,70,85], real:[280,155,65,63,60], adr:[80,78,87,90,71], mcu:[35,25,7,5,9], dentro:[200,110,50,50,40], fora:[115,65,18,15,36],
-    alertas:[
-      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 71%</strong> — abaixo da meta de 80%.'},
-      {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 14% das H-h</strong> — dentro da faixa saudável.'},
-    ],
-    repr:[
-      {num:'63200', txt:'CAL1 · Reforma caixa decantador · 18h'},
-      {num:'62980', txt:'MEC1 · Substituir rolamento bomba refluxo · 8h'},
-    ]
-  },
-  6: {
-    prev:[370,210,78,75,88], real:[305,168,68,68,58], adr:[82,80,87,91,66], mcu:[38,27,8,5,9], dentro:[210,120,50,55,38], fora:[122,48,18,13,38],
-    alertas:[
-      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 66%</strong> — abaixo da meta de 80%.'},
-      {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7621 há 5 dias sem conversão</strong> — média é 2,3 dias · MEC1.'},
-    ],
-    repr:[
-      {num:'64091', txt:'CIV1 · Instalar canaleta drenos condensado · 70h'},
-      {num:'63845', txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'},
-      {num:'64254', txt:'CIV1 · Concretar buraco asfalto caldeiras · 88h'},
-    ]
-  },
-  7: {
-    prev:[380,215,79,80,90], real:[285,160,62,70,54], adr:[75,74,78,88,60], mcu:[40,28,7,6,10], dentro:[205,115,50,55,38], fora:[130,47,19,14,38],
-    alertas:[
-      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 60%</strong> — abaixo da meta de 80%.'},
-      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>MEC1 com aderência de 75%</strong> — abaixo da meta de 80%.'},
-      {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · desde sem. 6.'},
-      {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 17% das H-h</strong> — ligeiramente acima de 15%.'},
-    ],
-    repr:[
-      {num:'65156', txt:'CAL3 · SSMA adequar ponto condensado · 36h'},
-      {num:'64534', txt:'CIV1 · Canaleta embebição moenda · 72h'},
-      {num:'65696', txt:'CIV1 · Concretar piso tratamento caldo · 28h'},
-      {num:'63845', txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'},
-    ]
-  },
-  8: {
-    prev:[389,220,80,82,91], real:[264,165,64,74,50], adr:[68,75,80,90,55], mcu:[42,30,8,6,10], dentro:[210,140,52,60,42], fora:[137,50,20,16,39],
-    alertas:[
-      {icon:'ti-trending-down',cls:'c-red',  txt:'<strong>CIV1 com aderência de 55%</strong> — abaixo da meta de 80%.'},
-      {icon:'ti-pause',        cls:'c-amber',txt:'<strong>Serv. 65156 interrompido por material</strong> — CAL3 · 36h · desde sem. 6.'},
-      {icon:'ti-clock',        cls:'c-blue', txt:'<strong>Pré-OS 7707 há 6 dias sem conversão</strong> — média 2,3 dias · CAL1.'},
-      {icon:'ti-chart-bar',    cls:'c-gray', txt:'<strong>MCU em 18% das H-h</strong> — acima da faixa saudável (15%).'},
-    ],
-    repr:[
-      {num:'65156', txt:'CAL3 · SSMA adequar ponto condensado · 36h'},
-      {num:'64534', txt:'CIV1 · Canaleta embebição moenda · 72h'},
-      {num:'65696', txt:'CIV1 · Concretar piso tratamento caldo · 28h'},
-      {num:'63845', txt:'CAL1 · Alinhar raspas filtro rotativo 3 · 8h'},
-      {num:'66409', txt:'CAL1 · Soldar cantoneira travamento PEIP · 10h'},
-      {num:'64915', txt:'CAL1 · Vazamento tanque caldo dosado · 8h'},
-    ]
-  },
-};
-const SEM_LABELS = { 5:'Sem 5', 6:'Sem 6', 7:'Sem 7', 8:'Sem 8' };
-
-/* Estado atual dos filtros */
-let activeSems = [8];
-let activeEqs  = ['MEC1','CAL1','CAL2','CAL3','CIV1'];
-
-/* Ouvir mudanças de semana */
 document.querySelectorAll('[name=sem]').forEach(cb => {
   cb.addEventListener('change', () => {
-    activeSems = [...document.querySelectorAll('[name=sem]:checked')].map(c => Number(c.value));
-    if (!activeSems.length) activeSems = [8];
-    const lbl = activeSems.map(s => SEM_LABELS[s]).join(', ');
+    activeSems = [...document.querySelectorAll('[name=sem]:checked')].map(c=>Number(c.value));
+    if(!activeSems.length) activeSems = [8];
+    const lbl = activeSems.length === Object.keys(SEM_LABELS).length ? 'SAFRA 2026 (todas)' : activeSems.map(s=>SEM_LABELS[s]).join(', ');
     document.getElementById('sem-label').textContent = lbl;
     updateCharts();
   });
 });
 
-/* Agregar dados das semanas selecionadas para as equipes ativas */
-function getAggregated() {
-  const eqIdx = activeEqs.map(e => ALL_EQ.indexOf(e)).filter(i => i >= 0);
-  const labels = activeEqs;
+function selectAllSems(all) {
+  document.querySelectorAll('[name=sem]').forEach(cb => { cb.checked = all; });
+  activeSems = all ? Object.keys(SEM_LABELS).map(Number) : [8];
+  if(!all) document.querySelector('[name=sem][value="8"]').checked = true;
+  document.getElementById('sem-label').textContent = all ? 'SAFRA 2026 (todas)' : SEM_LABELS[8];
+  updateCharts();
+  document.getElementById('dd-sem').classList.remove('show');
+}
 
-  /* Soma/média por semana */
-  let prev=[], real=[], adr=[], mcu=[], dentro=[], fora=[];
+/* ── AGREGAÇÃO ── */
+function getAggregated() {
+  const eqIdx = activeEqs.map(e=>ALL_EQ.indexOf(e)).filter(i=>i>=0);
+  const labels = activeEqs;
+  let prev=[],real=[],adr=[],mcu=[],dentro=[],fora=[];
   eqIdx.forEach(ei => {
     let sp=0,sr=0,sa=0,sm=0,sd=0,sf=0,count=0;
     activeSems.forEach(s => {
-      const d = DATA_SEM[s];
-      if(!d) return;
-      sp += d.prev[ei]; sr += d.real[ei];
-      sm += d.mcu[ei];  sd += d.dentro[ei]; sf += d.fora[ei];
-      sa += d.adr[ei];  count++;
+      const d=DATA_SEM[s]; if(!d) return;
+      sp+=d.prev[ei]; sr+=d.real[ei]; sm+=d.mcu[ei]; sd+=d.dentro[ei]; sf+=d.fora[ei]; sa+=d.adr[ei]; count++;
     });
-    prev.push(sp); real.push(sr);
-    adr.push(count ? Math.round(sa/count) : 0);
+    prev.push(sp); real.push(sr); adr.push(count?Math.round(sa/count):0);
     mcu.push(sm); dentro.push(sd); fora.push(sf);
   });
-
-  /* Aderência global por semana (só semanas ativas) */
-  const semLabels=[], semVals=[];
+  const semLabels=[],semVals=[];
   [5,6,7,8].forEach(s => {
     if(!DATA_SEM[s]) return;
-    const d = DATA_SEM[s];
-    const totalPrev = eqIdx.reduce((a,i)=>a+d.prev[i],0);
-    const totalReal = eqIdx.reduce((a,i)=>a+d.real[i],0);
+    const d=DATA_SEM[s];
+    const tp=eqIdx.reduce((a,i)=>a+d.prev[i],0);
+    const tr=eqIdx.reduce((a,i)=>a+d.real[i],0);
     semLabels.push(SEM_LABELS[s]);
-    semVals.push(totalPrev ? Math.round(totalReal/totalPrev*100) : 0);
+    semVals.push(tp?Math.round(tr/tp*100):0);
   });
-
-  /* Métricas do card */
-  const totalPrev  = prev.reduce((a,b)=>a+b,0);
-  const totalReal  = real.reduce((a,b)=>a+b,0);
-  const globalAdr  = totalPrev ? Math.round(totalReal/totalPrev*100) : 0;
-
-  return { labels, prev, real, adr, mcu, dentro, fora, semLabels, semVals, totalPrev, globalAdr };
+  const totalPrev=prev.reduce((a,b)=>a+b,0);
+  const totalReal=real.reduce((a,b)=>a+b,0);
+  const globalAdr=totalPrev?Math.round(totalReal/totalPrev*100):0;
+  return {labels,prev,real,adr,mcu,dentro,fora,semLabels,semVals,totalPrev,globalAdr};
 }
 
-/* Referências dos charts */
+/* ── CHARTS ── */
+const YELLOW='#F8C100', GREEN='#1D9E75', RED='#E24B4A', BLUE='#378ADD';
+const tickC='rgba(80,80,80,.9)', gridC='rgba(0,0,0,.06)';
 let charts = {};
 
-function updateCharts() {
-  activeEqs = [...document.querySelectorAll('#dd-eq input:checked')].map(i => i.value);
-  const d = getAggregated();
-
-  /* Atualizar métricas */
-  document.getElementById('m-hh').textContent   = d.totalPrev.toLocaleString('pt-BR') + 'h';
-  document.getElementById('m-adr').textContent  = d.globalAdr + '%';
-  document.getElementById('m-adr').style.color  = d.globalAdr >= 80 ? GREEN : RED;
-
-  /* C1 — H-h programado */
-  charts.c1.data.labels = d.labels;
-  charts.c1.data.datasets[0].data = d.prev;
-  charts.c1.update();
-
-  /* C2 — Aderência */
-  charts.c2.data.labels = d.labels;
-  charts.c2.data.datasets[0].data = d.adr;
-  charts.c2.data.datasets[0].backgroundColor = d.adr.map(v => v>=80?GREEN:RED);
-  charts.c2.update();
-
-  /* C3 — Aderência global */
-  charts.c3.data.labels = d.semLabels;
-  charts.c3.data.datasets[0].data = d.semVals;
-  charts.c3.data.datasets[0].backgroundColor = d.semVals.map(v => v>=80?GREEN:RED);
-  charts.c3.update();
-
-  /* C4 — Eficiência */
-  charts.c4.data.labels = d.labels;
-  charts.c4.data.datasets[0].data = d.prev;
-  charts.c4.data.datasets[1].data = d.real;
-  charts.c4.data.datasets[1].backgroundColor = d.real.map((r,i)=>r/d.prev[i]>=0.8?GREEN:RED);
-  charts.c4._realData = d.real;
-  charts.c4._prevData = d.prev;
-  charts.c4.update();
-
-  /* C5 — Distribuição */
-  charts.c5.data.labels = d.labels;
-  charts.c5.data.datasets[0].data = d.mcu;
-  charts.c5.data.datasets[1].data = d.dentro;
-  charts.c5.data.datasets[2].data = d.fora;
-  charts.c5.update();
-
-  /* Alertas e reprogramadas — só quando 1 semana selecionada */
-  const alertasEl = document.getElementById('alertas-body');
-  const reprEl    = document.getElementById('repr-body');
-  const reprCount = document.getElementById('repr-count');
-
-  if (activeSems.length === 1) {
-    const sem = DATA_SEM[activeSems[0]];
-
-    /* Alertas */
-    alertasEl.innerHTML = sem.alertas.map(a => `
-      <div class="alert-li">
-        <i class="ti ${a.icon} ${a.cls}"></i>
-        <div>${a.txt}</div>
-      </div>`).join('');
-
-    /* Reprogramadas */
-    reprCount.textContent = sem.repr.length + ' serviço' + (sem.repr.length !== 1 ? 's' : '');
-    reprEl.innerHTML = sem.repr.map(r => `
-      <div class="repr-li">
-        <div class="repr-dot"></div>
-        <span class="repr-num">${r.num}</span>
-        <span>${r.txt}</span>
-      </div>`).join('');
-
-  } else {
-    /* Múltiplas semanas — exibir traço */
-    alertasEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">— selecione uma única semana para ver os alertas —</div>';
-    reprCount.textContent = '';
-    reprEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">— selecione uma única semana —</div>';
-  }
-}
-
-/* ── DADOS INICIAIS ── */
-const eq = ALL_EQ;
-
-const tickC='rgba(80,80,80,.9)';
-const gridC='rgba(0,0,0,.06)';
-
-/* Plugin: valor acima das barras simples */
 const topLbl = {
   id:'topLbl',
   afterDatasetsDraw(chart) {
-    const {ctx} = chart;
-    chart.data.datasets.forEach((ds, di) => {
-      if (ds._noLabel) return;
-      const meta = chart.getDatasetMeta(di);
-      if (meta.hidden) return;
-      meta.data.forEach((bar, i) => {
-        const v = ds.data[i];
-        const lbl = ds._fmt ? ds._fmt(v, i) : String(v);
+    const {ctx}=chart;
+    chart.data.datasets.forEach((ds,di)=>{
+      if(ds._noLabel) return;
+      const meta=chart.getDatasetMeta(di);
+      if(meta.hidden) return;
+      meta.data.forEach((bar,i)=>{
+        const v=ds.data[i];
+        const lbl=ds._fmt?ds._fmt(v,i):String(v);
         ctx.save();
-        ctx.font = '500 10px IBM Plex Sans, sans-serif';
-        ctx.fillStyle = tickC;
-        ctx.textAlign = 'center';
-        ctx.fillText(lbl, bar.x, bar.y - 5);
+        ctx.font='500 10px IBM Plex Sans,sans-serif';
+        ctx.fillStyle=tickC;
+        ctx.textAlign='center';
+        ctx.fillText(lbl,bar.x,bar.y-5);
         ctx.restore();
       });
     });
   }
 };
 
-/* Plugin: % acima do par (eficiência) */
 const midPct = {
   id:'midPct',
   afterDatasetsDraw(chart) {
-    if (!chart.data._showMid) return;
-    const {ctx} = chart;
-    const m0 = chart.getDatasetMeta(0).data;
-    const m1 = chart.getDatasetMeta(1).data;
-    m0.forEach((b0, i) => {
-      const b1 = m1[i];
-      const midX = (b0.x + b1.x) / 2;
-      const topY = Math.min(b0.y, b1.y) - 7;
-      const rData = chart.data.datasets[0].data;
-      const pData = chart.data.datasets[1].data;
-      const pct = rData[i] ? Math.round((pData[i]||0) / rData[i] * 100) : 0;
+    if(!chart.data._showMid) return;
+    const {ctx}=chart;
+    const m0=chart.getDatasetMeta(0).data;
+    const m1=chart.getDatasetMeta(1).data;
+    m0.forEach((b0,i)=>{
+      const b1=m1[i];
+      const midX=(b0.x+b1.x)/2;
+      const topY=Math.min(b0.y,b1.y)-7;
+      const rData=chart.data.datasets[0].data;
+      const pData=chart.data.datasets[1].data;
+      const pct=rData[i]?Math.round((pData[i]||0)/rData[i]*100):0;
       ctx.save();
-      ctx.font = '600 10px IBM Plex Sans, sans-serif';
-      ctx.fillStyle = pct >= 80 ? GREEN : RED;
-      ctx.textAlign = 'center';
-      ctx.fillText(pct + '%', midX, topY);
+      ctx.font='600 10px IBM Plex Sans,sans-serif';
+      ctx.fillStyle=pct>=80?GREEN:RED;
+      ctx.textAlign='center';
+      ctx.fillText(pct+'%',midX,topY);
       ctx.restore();
     });
   }
 };
 
-Chart.register(topLbl, midPct);
+function updateCharts() {
+  activeEqs=[...document.querySelectorAll('#dd-eq input:checked')].map(i=>i.value);
+  const d=getAggregated();
 
-const base = {
-  responsive: true, maintainAspectRatio: false,
-  plugins: { legend: { display: false }, tooltip: {} }
-};
+  /* Métricas */
+  const mHH=document.getElementById('m-hh');
+  const mAdr=document.getElementById('m-adr');
+  if(mHH) { mHH.textContent=d.totalPrev.toLocaleString('pt-BR')+'h'; }
+  if(mAdr){ mAdr.textContent=d.globalAdr+'%'; mAdr.style.color=d.globalAdr>=80?GREEN:RED; }
 
-/* C1 — H-h programado */
-const _d0 = getAggregated();
-charts.c1 = new Chart(document.getElementById('c1'), {
-  type: 'bar',
-  data: { labels: _d0.labels, datasets: [{ data: _d0.prev, backgroundColor: YELLOW, borderRadius: 5, _fmt: v => v+'h' }] },
-  options: { ...base, scales: {
-    x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
-    y: { ticks: { color: tickC, font: { size: 10 }, callback: v => v+'h' }, grid: { color: gridC } }
-  }}
-});
+  /* C1 */
+  charts.c1.data.labels=d.labels;
+  charts.c1.data.datasets[0].data=d.prev;
+  charts.c1.update();
 
-/* C2 — Aderência por equipe */
-charts.c2 = new Chart(document.getElementById('c2'), {
-  type: 'bar',
-  data: { labels: _d0.labels, datasets: [{ data: _d0.adr, backgroundColor: _d0.adr.map(v => v>=80?GREEN:RED), borderRadius: 5, _fmt: v => v+'%' }] },
-  options: { ...base, scales: {
-    x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
-    y: { min: 0, max: 100, ticks: { color: tickC, font: { size: 10 }, callback: v => v+'%' }, grid: { color: gridC } }
-  }}
-});
+  /* C2 */
+  charts.c2.data.labels=d.labels;
+  charts.c2.data.datasets[0].data=d.adr;
+  charts.c2.data.datasets[0].backgroundColor=d.adr.map(v=>v>=80?GREEN:RED);
+  charts.c2.update();
 
-/* C3 — Aderência global */
-charts.c3 = new Chart(document.getElementById('c3'), {
-  type: 'bar',
-  data: { labels: ['Sem 5','Sem 6','Sem 7','Sem 8'], datasets: [{ data: semVals, backgroundColor: semVals.map(v=>v>=80?GREEN:RED), borderRadius: 5, _fmt: v => v+'%' }] },
-  options: { ...base, scales: {
-    x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
-    y: { min: 0, max: 100, ticks: { color: tickC, font: { size: 10 }, callback: v => v+'%' }, grid: { color: gridC } }
-  }}
-});
+  /* C3 */
+  charts.c3.data.labels=d.semLabels;
+  charts.c3.data.datasets[0].data=d.semVals;
+  charts.c3.data.datasets[0].backgroundColor=d.semVals.map(v=>v>=80?GREEN:RED);
+  charts.c3.update();
 
-/* C4 — Eficiência planejamento */
-charts.c4 = new Chart(document.getElementById('c4'), {
-  type: 'bar',
-  data: {
-    _showMid: true,
-    labels: _d0.labels,
-    datasets: [
-      { label: 'Previsto',  data: [..._d0.prev], backgroundColor: YELLOW, borderRadius: 5, _noLabel: true },
-      { label: 'Realizado', data: [..._d0.real], backgroundColor: _d0.real.map((r,i) => r/_d0.prev[i]>=0.8?GREEN:RED), borderRadius: 5, _noLabel: true }
-    ]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: {
-      legend: { display: true, labels: { color: tickC, font: { size: 10 }, boxWidth: 10, boxHeight: 10 } },
-      tooltip: {}
-    },
-    scales: {
-      x: { ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } },
-      y: { ticks: { color: tickC, font: { size: 10 }, callback: v => v+'h' }, grid: { color: gridC } }
-    }
+  /* C4 */
+  charts.c4.data.labels=d.labels;
+  charts.c4.data.datasets[0].data=d.prev;
+  charts.c4.data.datasets[1].data=d.real;
+  charts.c4.data.datasets[1].backgroundColor=d.real.map((r,i)=>r/d.prev[i]>=0.8?GREEN:RED);
+  charts.c4.update();
+
+  /* C5 */
+  charts.c5.data.labels=d.labels;
+  charts.c5.data.datasets[0].data=d.mcu;
+  charts.c5.data.datasets[1].data=d.dentro;
+  charts.c5.data.datasets[2].data=d.fora;
+  charts.c5.update();
+
+  /* Alertas e reprogramadas */
+  const alertasEl=document.getElementById('alertas-body');
+  const reprEl=document.getElementById('repr-body');
+  const reprCount=document.getElementById('repr-count');
+  if(activeSems.length===1) {
+    const sem=DATA_SEM[activeSems[0]];
+    alertasEl.innerHTML=sem.alertas.map(a=>`<div class="alert-li"><i class="ti ${a.icon} ${a.cls}"></i><div>${a.txt}</div></div>`).join('');
+    reprCount.textContent=sem.repr.length+' serviço'+(sem.repr.length!==1?'s':'');
+    reprEl.innerHTML=sem.repr.map(r=>`<div class="repr-li"><div class="repr-dot"></div><span class="repr-num">${r.num}</span><span>${r.txt}</span></div>`).join('');
+  } else {
+    alertasEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">— selecione uma única semana —</div>';
+    reprCount.textContent='';
+    reprEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:var(--text-3);text-align:center;">— selecione uma única semana —</div>';
   }
-});
+}
 
-/* C5 — Distribuição H-h horizontal empilhado */
-charts.c5 = new Chart(document.getElementById('c5'), {
-  type: 'bar',
-  data: {
-    labels: _d0.labels,
-    datasets: [
-      { label: 'MCU',             data: _d0.mcu,    backgroundColor: RED,   borderRadius: 0, _noLabel: true },
-      { label: 'Dentro da prog.', data: _d0.dentro, backgroundColor: GREEN, borderRadius: 0, _noLabel: true },
-      { label: 'Fora da prog.',   data: _d0.fora,   backgroundColor: BLUE,  borderRadius: 0, _noLabel: true }
-    ]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    indexAxis: 'y',
-    plugins: {
-      legend: { display: false },
-      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.raw}h` } }
-    },
-    scales: {
-      x: { stacked: true, ticks: { color: tickC, font: { size: 10 }, callback: v => v+'h' }, grid: { color: gridC } },
-      y: { stacked: true, ticks: { color: tickC, font: { size: 10 } }, grid: { display: false } }
-    }
+/* ── IMPORTAÇÃO ── */
+function detectFileType(filename, rows) {
+  const name=filename.toLowerCase();
+  const flat=rows?rows.flat().map(c=>String(c).toLowerCase()):[];
+  const joined=flat.join(' ');
+  if(flat.some(c=>c.includes('h-h (hr:mi)'))||joined.includes('prog.semanal')||joined.includes('plano de execução')) return {type:'progsem',label:'Programação Semanal'};
+  if(flat.some(c=>c==='o.s.')&&flat.some(c=>c.includes('codigo serviço'))) return {type:'os',label:'Ordens de Serviço'};
+  if(flat.some(c=>c.includes('hr.in'))||flat.some(c=>c.includes('hr.fim'))) return {type:'apontamento',label:'Apontamento de Mão de Obra'};
+  if(flat.some(c=>c.includes('pré-os')||c.includes('pre-os'))) return {type:'preos',label:'Pré-Ordens'};
+  if(flat.some(c=>c.includes('código_material')||c.includes('n° solicitação'))) return {type:'material',label:'Solicitação de Material'};
+  if(name.includes('progsem')||name.includes('prog_sem')||name.includes('programacao')) return {type:'progsem',label:'Programação Semanal'};
+  if(name.includes('os_cal')||name.includes('os_mec')||name.includes('os_civ')) return {type:'os',label:'Ordens de Serviço'};
+  if(name.includes('apontamento')) return {type:'apontamento',label:'Apontamento'};
+  if(name.includes('preos')) return {type:'preos',label:'Pré-Ordens'};
+  if(name.includes('material')||name.includes('solic')) return {type:'material',label:'Solicitação de Material'};
+  return {type:'unknown',label:'Tipo não identificado'};
+}
+
+function parseProgSemanal(rows) {
+  const registros=[];
+  let equipeAtual='',equipeDesc='';
+  let semana=null,ano=null,dataInicio=null,dataFim=null;
+  rows.slice(0,15).forEach(row=>{
+    const txt=row.join(' ');
+    const mSem=txt.match(/SEM\s*(\d+)/i);
+    if(mSem) semana=parseInt(mSem[1]);
+    const mPer=txt.match(/(\d{2}\/\d{2}\/\d{4})/g);
+    if(mPer&&mPer.length>=2){dataInicio=mPer[0];dataFim=mPer[1];ano=parseInt(mPer[0].split('/')[2]);}
+  });
+  rows.forEach(row=>{
+    const cells=row.map(c=>String(c).trim());
+    const joined=cells.join(' ');
+    const mEq=joined.match(/Equipe:\s*([A-Z0-9]+)\s*[-]\s*(.+)/i);
+    if(mEq){equipeAtual=mEq[1].trim();equipeDesc=mEq[2].trim();return;}
+    const osNum=cells[0];
+    if(!/^\d{5,}$/.test(osNum)) return;
+    const descricao=cells[1]||'';
+    const equipamento=cells[2]||'';
+    const hhStr=cells[5]||cells[6]||'';
+    const hh=parseFloat(String(hhStr).replace(',','.'))||null;
+    if(!descricao&&!equipamento) return;
+    registros.push({semana,ano,data_inicio:dataInicio,data_fim:dataFim,os:osNum,descricao,equipamento,equipe:equipeAtual,equipe_desc:equipeDesc,hh_previsto:hh,data_inicio_serv:cells[3]||'',hora_inicio:cells[4]||'',data_fim_serv:cells[4]||'',hora_fim:cells[5]||''});
+  });
+  return {registros,semana,ano,dataInicio,dataFim};
+}
+
+async function salvarProgSemanal(registros) {
+  if(!registros.length){showToast('Nenhum registro encontrado','ti-alert-circle',5000);return false;}
+  const {semana,ano}=registros[0];
+  const {data:existing}=await sb.from('programacao_semanal').select('id',{count:'exact',head:true}).eq('semana',semana).eq('ano',ano);
+  if(existing&&existing.length>0){
+    const ok=confirm(`Semana ${semana}/${ano} já importada.
+Deseja substituir os dados?`);
+    if(!ok){showToast('Importação cancelada','ti-info-circle',3000);return false;}
+    await sb.from('programacao_semanal').delete().eq('semana',semana).eq('ano',ano);
   }
-});
+  const BATCH=200;let total=0;
+  for(let i=0;i<registros.length;i+=BATCH){
+    const lote=registros.slice(i,i+BATCH);
+    const {error}=await sb.from('programacao_semanal').insert(lote);
+    if(error){showToast('Erro: '+error.message,'ti-alert-circle',6000);return false;}
+    total+=lote.length;
+  }
+  return total;
+}
 
-/* Renderizar estado inicial */
-updateCharts();
+function handleDrop(e){e.preventDefault();document.getElementById('dz').classList.remove('over');const f=e.dataTransfer.files[0];if(f)handleFile(f);}
+
+async function handleFile(file) {
+  if(!file) return;
+  showToast('Lendo '+file.name+'…','ti-loader');
+  const reader=new FileReader();
+  reader.onload=async ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      const detected=detectFileType(file.name,rows);
+      if(detected.type==='progsem'){
+        const {registros,semana,ano}=parseProgSemanal(rows);
+        const semInfo=semana?`Semana ${semana}${ano?' · '+ano:''}`:'semana não identificada';
+        if(!registros.length){addHistRow(file.name,detected.label,false,'Nenhum serviço encontrado');showToast('Nenhum serviço encontrado','ti-alert-circle',5000);return;}
+        showToast(semInfo+' · '+registros.length+' serviços · salvando…','ti-calendar',4000);
+        const saved=await salvarProgSemanal(registros);
+        if(saved){addHistRow(file.name,'Prog. Semanal — '+semInfo,true,'OK · '+saved+' registros');showToast('Salvo: '+saved+' serviços','ti-check',5000);}
+        else addHistRow(file.name,detected.label,false,'Erro ao salvar');
+      } else {
+        const dataRows=rows.filter(r=>r.some(c=>String(c).trim())).length;
+        addHistRow(file.name,detected.label,true,'Identificado · '+dataRows+' linhas');
+        showToast('Identificado: '+detected.label+' (módulo em desenvolvimento)','ti-info-circle',5000);
+      }
+    } catch(err){
+      addHistRow(file.name,'Erro',false,'Erro: '+err.message);
+      showToast('Erro ao ler arquivo','ti-alert-circle',5000);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function addHistRow(name,type,ok,badge){
+  const now=new Date();
+  const time=now.getHours()+':'+String(now.getMinutes()).padStart(2,'0');
+  const icon=name.endsWith('.pdf')?'ti-file-type-pdf':'ti-file-spreadsheet';
+  const color=name.endsWith('.pdf')?'var(--red-l)':'var(--green)';
+  document.getElementById('hist-list').insertAdjacentHTML('afterbegin',`<div class="hist-row"><i class="ti ${icon}" style="color:${color}"></i><span class="hist-name" title="${name}">${name}</span><span class="hist-date">hoje ${time}</span><span class="hist-badge ${ok?'hb-ok':'hb-err'}">${badge}</span></div>`);
+}
+
+/* ── INICIALIZAÇÃO (após todos os scripts externos carregarem) ── */
+window.addEventListener('load', function() {
+  const base={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{}}};
+
+  Chart.register(topLbl, midPct);
+
+  const d0=getAggregated();
+
+  charts.c1=new Chart(document.getElementById('c1'),{
+    type:'bar',
+    data:{labels:d0.labels,datasets:[{data:d0.prev,backgroundColor:YELLOW,borderRadius:5,_fmt:v=>v+'h'}]},
+    options:{...base,scales:{x:{ticks:{color:tickC,font:{size:10}},grid:{display:false}},y:{ticks:{color:tickC,font:{size:10},callback:v=>v+'h'},grid:{color:gridC}}}}
+  });
+
+  charts.c2=new Chart(document.getElementById('c2'),{
+    type:'bar',
+    data:{labels:d0.labels,datasets:[{data:d0.adr,backgroundColor:d0.adr.map(v=>v>=80?GREEN:RED),borderRadius:5,_fmt:v=>v+'%'}]},
+    options:{...base,scales:{x:{ticks:{color:tickC,font:{size:10}},grid:{display:false}},y:{min:0,max:100,ticks:{color:tickC,font:{size:10},callback:v=>v+'%'},grid:{color:gridC}}}}
+  });
+
+  charts.c3=new Chart(document.getElementById('c3'),{
+    type:'bar',
+    data:{labels:d0.semLabels,datasets:[{data:d0.semVals,backgroundColor:d0.semVals.map(v=>v>=80?GREEN:RED),borderRadius:5,_fmt:v=>v+'%'}]},
+    options:{...base,scales:{x:{ticks:{color:tickC,font:{size:10}},grid:{display:false}},y:{min:0,max:100,ticks:{color:tickC,font:{size:10},callback:v=>v+'%'},grid:{color:gridC}}}}
+  });
+
+  charts.c4=new Chart(document.getElementById('c4'),{
+    type:'bar',
+    data:{_showMid:true,labels:d0.labels,datasets:[
+      {label:'Previsto', data:d0.prev,backgroundColor:YELLOW,borderRadius:5,_noLabel:true},
+      {label:'Realizado',data:d0.real,backgroundColor:d0.real.map((r,i)=>r/d0.prev[i]>=0.8?GREEN:RED),borderRadius:5,_noLabel:true}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{color:tickC,font:{size:10},boxWidth:10,boxHeight:10}},tooltip:{}},scales:{x:{ticks:{color:tickC,font:{size:10}},grid:{display:false}},y:{ticks:{color:tickC,font:{size:10},callback:v=>v+'h'},grid:{color:gridC}}}}
+  });
+
+  charts.c5=new Chart(document.getElementById('c5'),{
+    type:'bar',
+    data:{labels:d0.labels,datasets:[
+      {label:'MCU',             data:d0.mcu,    backgroundColor:RED,   borderRadius:0,_noLabel:true},
+      {label:'Dentro da prog.', data:d0.dentro, backgroundColor:GREEN, borderRadius:0,_noLabel:true},
+      {label:'Fora da prog.',   data:d0.fora,   backgroundColor:BLUE,  borderRadius:0,_noLabel:true}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.raw}h`}}},scales:{x:{stacked:true,ticks:{color:tickC,font:{size:10},callback:v=>v+'h'},grid:{color:gridC}},y:{stacked:true,ticks:{color:tickC,font:{size:10}},grid:{display:false}}}}
+  });
+
+  updateCharts();
+});
 </script>
-
 </body>
-</html>
