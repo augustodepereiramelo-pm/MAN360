@@ -973,24 +973,53 @@ function parseProgSemanal(rows) {
 
 async function salvarProgSemanal(registros) {
   if(!registros.length){showToast('Nenhum registro encontrado','ti-alert-circle',5000);return false;}
-  if(!sb){showToast('Sem conexão com o banco de dados','ti-alert-circle',5000);return false;}
+  if(!sb){showToast('Sem conexao com o banco de dados','ti-alert-circle',5000);return false;}
+
   const {semana,ano}=registros[0];
-  const {data:existing}=await sb.from('programacao_semanal').select('id',{count:'exact',head:true}).eq('semana',semana).eq('ano',ano);
+
+  const {data:existing,error:chkErr}=await sb
+    .from('programacao_semanal').select('id',{count:'exact',head:true})
+    .eq('semana',semana).eq('ano',ano);
+
+  if(chkErr){showToast('Erro ao verificar banco: '+chkErr.message,'ti-alert-circle',5000);return false;}
+
   if(existing&&existing.length>0){
-    const ok=confirm('Semana ' + semana + '/' + ano + ' ja importada. Deseja substituir os dados anteriores?');
-    if(!ok){showToast('Importação cancelada','ti-info-circle',3000);return false;}
-    await sb.from('programacao_semanal').delete().eq('semana',semana).eq('ano',ano);
+    const ok=confirm('Semana '+semana+'/'+ano+' ja importada. Deseja substituir os dados?');
+    if(!ok){showToast('Importacao cancelada','ti-info-circle',3000);return false;}
+    const {error:delErr}=await sb.from('programacao_semanal').delete().eq('semana',semana).eq('ano',ano);
+    if(delErr){showToast('Erro ao remover dados anteriores: '+delErr.message,'ti-alert-circle',5000);return false;}
   }
-  const BATCH=200;let total=0;
-  for(let i=0;i<registros.length;i+=BATCH){
-    const lote=registros.slice(i,i+BATCH);
+
+  const limpos=registros.map(r=>({
+    semana:          r.semana||null,
+    ano:             r.ano||null,
+    data_inicio:     r.data_inicio||null,
+    data_fim:        r.data_fim||null,
+    os:              r.os||null,
+    descricao:       String(r.descricao||'').slice(0,500),
+    equipamento:     String(r.equipamento||'').slice(0,50),
+    equipe:          String(r.equipe||'').slice(0,20),
+    equipe_desc:     String(r.equipe_desc||'').slice(0,100),
+    hh_previsto:     isNaN(parseFloat(r.hh_previsto))?null:parseFloat(r.hh_previsto),
+    data_inicio_serv:r.data_inicio_serv||null,
+    hora_inicio:     r.hora_inicio||null,
+    data_fim_serv:   r.data_fim_serv||null,
+    hora_fim:        r.hora_fim||null,
+  }));
+
+  const BATCH=100;let total=0;
+  for(let i=0;i<limpos.length;i+=BATCH){
+    const lote=limpos.slice(i,i+BATCH);
     const {error}=await sb.from('programacao_semanal').insert(lote);
-    if(error){showToast('Erro: '+error.message,'ti-alert-circle',6000);return false;}
+    if(error){
+      console.error('Supabase error:',error);
+      showToast('Erro ao salvar: '+error.message,'ti-alert-circle',7000);
+      return false;
+    }
     total+=lote.length;
   }
   return total;
 }
-
 function handleDrop(e){e.preventDefault();document.getElementById('dz').classList.remove('over');const f=e.dataTransfer.files[0];if(f)handleFile(f);}
 
 
