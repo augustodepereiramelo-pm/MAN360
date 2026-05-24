@@ -982,28 +982,60 @@ function updateCharts() {
 
 /* -- IMPORTACAO -- */
 function detectFileType(filename, rows) {
-  const name=filename.toLowerCase();
-  const flat=rows?rows.flat().map(c=>String(c).toLowerCase()):[];
-  const joined=flat.join(' ');
-  if(flat.some(c=>c.includes('h-h (hr:mi)'))||joined.includes('prog.semanal')||joined.includes('plano de execucao')||joined.includes('programacao sem')||flat.some(c=>c.includes('equipe:')&&c.includes('h-h disponivel'))) return {type:'progsem',label:'Programacao Semanal'};
-  if(flat.some(c=>c==='o.s.')&&flat.some(c=>c.includes('codigo servico'))) return {type:'os',label:'Ordens de Servico'};
-  if(flat.some(c=>c.includes('hr.in'))||flat.some(c=>c.includes('hr.fim'))) return {type:'apontamento',label:'Apontamento de Mao de Obra'};
-  if(flat.some(c=>c.includes('pre-os'))) return {type:'preos',label:'Pre-Ordens'};
-  if(flat.some(c=>c.includes('codigo_material')||c.includes('n solicitacao'))) return {type:'material',label:'Solicitacao de Material'};
-  if(name.includes('progsem')||name.includes('prog_sem')||name.includes('programacao')) return {type:'progsem',label:'Programacao Semanal'};
-  if(name.includes('os_cal')||name.includes('os_mec')||name.includes('os_civ')) return {type:'os',label:'Ordens de Servico'};
-  if(name.includes('apontamento')) return {type:'apontamento',label:'Apontamento'};
-  if(name.includes('preos')) return {type:'preos',label:'Pre-Ordens'};
-  if(name.includes('material')||name.includes('solic')) return {type:'material',label:'Solicitacao de Material'};
-  return {type:'unknown',label:'Tipo nao identificado'};
+  const name = filename.toLowerCase();
+  /* Pegar primeiras 5 linhas achatadas para analise */
+  const flat   = rows ? rows.slice(0,10).flat().map(c => String(c||'').toLowerCase().trim()) : [];
+  const joined = flat.join(' ');
+
+  /* --- Programacao Semanal --- */
+  if (flat.some(c => c.includes('h-h (hr:mi)')) ||
+      joined.includes('prog.semanal') ||
+      joined.includes('plano de execu') ||
+      joined.includes('programacao sem') ||
+      joined.includes('programação sem') ||
+      (flat.some(c => c.includes('equipe:')) && flat.some(c => c.includes('disponivel') || c.includes('h-h'))) ||
+      name.includes('progsem') || name.includes('prog_sem') || name.includes('programacao') || name.includes('programação'))
+    return {type:'progsem', label:'Programacao Semanal'};
+
+  /* --- Ordens de Servico --- */
+  if (flat.some(c => c === 'o.s.' || c === 'os') &&
+      flat.some(c => c.includes('codigo') && c.includes('servi')))
+    return {type:'os', label:'Ordens de Servico'};
+  if (name.includes('bdd_os') || name.includes('os_cal') || name.includes('os_mec') ||
+      name.includes('os_civ') || name.includes('os_ele'))
+    return {type:'os', label:'Ordens de Servico'};
+
+  /* --- Apontamento --- */
+  if (flat.some(c => c.includes('hr.in') || c.includes('hr.fim') || c.includes('hr.total')) ||
+      name.includes('apontamento'))
+    return {type:'apontamento', label:'Apontamento de Mao de Obra'};
+
+  /* --- Pre-Ordens --- */
+  if (flat.some(c => c.includes('pre-os') || c === 'pre-ordem' || c.includes('pre-ordem')) ||
+      flat.some(c => c === 'situacao' || c === 'situação') && flat.some(c => c.includes('pre')) ||
+      name.includes('preos') || name.includes('pre_os') || name.includes('pre-os'))
+    return {type:'preos', label:'Pre-Ordens de Servico'};
+
+  /* --- Material --- */
+  if (flat.some(c => c.includes('solicita') && c.includes('material')) ||
+      flat.some(c => c.includes('cod') && c.includes('material')) ||
+      name.includes('material') || name.includes('solic'))
+    return {type:'material', label:'Solicitacao de Material'};
+
+  return {type:'unknown', label:'Tipo nao identificado - verificar arquivo'};
 }
 
-function parseProgSemanal(rows) {
+/* Parser que aceita rows de QUALQUER aba do xlsx */
+function parseRowsProgSemanal(rows, sContext) {
   const registros = [];
-  let equipeAtual = '', equipeDesc = '';
-  let semana = null, ano = null, dataInicio = null, dataFim = null;
+  let equipeAtual = sContext.equipeAtual || '';
+  let equipeDesc  = sContext.equipeDesc  || '';
+  let semana      = sContext.semana      || null;
+  let ano         = sContext.ano         || null;
+  let dataInicio  = sContext.dataInicio  || null;
+  let dataFim     = sContext.dataFim     || null;
 
-  /* Juntar primeiras 10 linhas num texto so para detectar semana */
+  /* Juntar primeiras 10 linhas para detectar semana/periodo */
   const headerText = rows.slice(0, 10).map(row => row.map(c => String(c || '')).join(' ')).join(' ');
 
   /* Formato novo xlsx: "SEM 8 18/05-24/05/26" */
@@ -1066,7 +1098,34 @@ function parseProgSemanal(rows) {
       data_fim_serv:    mDatas ? mDatas[3] : null, hora_fim:         mDatas ? mDatas[4] : null,
     });
   });
-  return { registros, semana, ano, dataInicio, dataFim };
+  return { registros, semana, ano, dataInicio, dataFim, equipeAtual, equipeDesc };
+}
+
+/* parseProgSemanal: itera todas as abas do workbook */
+function parseProgSemanal(rows, wb) {
+  let allRegistros = [];
+  let context = { semana: null, ano: null, dataInicio: null, dataFim: null, equipeAtual: '', equipeDesc: '' };
+
+  /* Se tiver workbook (multiplas abas), processar cada aba */
+  if (wb && wb.SheetNames && wb.SheetNames.length > 1) {
+    wb.SheetNames.forEach(sheetName => {
+      const ws  = wb.Sheets[sheetName];
+      const sheetRows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      const result = parseRowsProgSemanal(sheetRows, context);
+      allRegistros = allRegistros.concat(result.registros);
+      /* Propagar contexto (semana/equipe) entre abas */
+      if (result.semana)      context.semana      = result.semana;
+      if (result.ano)         context.ano         = result.ano;
+      if (result.dataInicio)  context.dataInicio  = result.dataInicio;
+      if (result.dataFim)     context.dataFim     = result.dataFim;
+      if (result.equipeAtual) context.equipeAtual = result.equipeAtual;
+      if (result.equipeDesc)  context.equipeDesc  = result.equipeDesc;
+    });
+    return { registros: allRegistros, semana: context.semana, ano: context.ano, dataInicio: context.dataInicio, dataFim: context.dataFim };
+  }
+
+  /* Aba unica */
+  return parseRowsProgSemanal(rows, context);
 }
 
 async function salvarProgSemanal(registros) {
@@ -1118,7 +1177,7 @@ async function handleFile(file) {
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
       const detected = detectFileType(file.name, rows);
       if (detected.type === 'progsem') {
-        const {registros, semana, ano} = parseProgSemanal(rows);
+        const {registros, semana, ano} = parseProgSemanal(rows, wb);
         const semInfo = semana ? 'Semana ' + semana + (ano ? ' . ' + ano : '') : 'semana nao identificada';
         if (!registros.length) { addHistRow(file.name, detected.label, false, 'Nenhum servico encontrado'); showToast('Nenhum servico encontrado.', 'ti-alert-circle', 5000); return; }
         showToast(semInfo + ' . ' + registros.length + ' servicos . salvando...', 'ti-calendar', 4000);
