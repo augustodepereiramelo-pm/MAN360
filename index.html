@@ -654,6 +654,15 @@ document.addEventListener('click', e => {
   if(!e.target.closest('.dd-wrap')) document.querySelectorAll('.dd-panel').forEach(p=>p.classList.remove('show'));
 });
 
+function showBanner(msg, show) {
+  const b = document.getElementById('banner-status');
+  const m = document.getElementById('banner-msg');
+  if(b && m) {
+    b.style.display = show ? 'flex' : 'none';
+    m.textContent = msg || '';
+  }
+}
+
 function showToast(msg, icon, duration) {
   icon = icon || 'ti-info-circle';
   duration = duration || 3500;
@@ -666,17 +675,30 @@ function showToast(msg, icon, duration) {
 
 /* -- CARREGAR SEMANAS DO SUPABASE -- */
 async function carregarSemanas() {
-  if(!sb) return usarDadosFicticios();
+  showBanner('Carregando dados do banco...', true);
 
-  const { data, error } = await sb
-    .from('programacao_semanal')
-    .select('semana, ano, equipe, hh_previsto')
-    .order('semana', { ascending: true });
-
-  if(error || !data || !data.length) {
-    console.warn('Sem dados no banco, usando ficticios:', error);
+  if(!sb) {
+    showBanner('Modo offline - exibindo dados de exemplo. Acesse via GitHub Pages para dados reais.', true);
     return usarDadosFicticios();
   }
+
+  try {
+    const { data, error } = await sb
+      .from('programacao_semanal')
+      .select('semana, ano, equipe, hh_previsto')
+      .order('semana', { ascending: true });
+
+    if(error) throw error;
+
+    if(!data || !data.length) {
+      showBanner('Banco conectado, mas sem dados importados. Use o campo "Importar dados" abaixo.', true);
+      semsDisponiveis = [];
+      renderizarDropdownSemanas();
+      usarDadosFicticios();
+      return;
+    }
+
+    showBanner('', false);
 
   /* Agrupar por semana/equipe */
   const agrupado = {};
@@ -707,14 +729,20 @@ async function carregarSemanas() {
     });
   });
 
-  semsDisponiveis = Object.keys(dadosPorSem).map(Number).sort((a,b)=>a-b);
-  renderizarDropdownSemanas();
+    semsDisponiveis = Object.keys(dadosPorSem).map(Number).sort((a,b)=>a-b);
+    renderizarDropdownSemanas();
 
-  /* Selecionar a mais recente por padrao */
-  const maisRecente = semsDisponiveis[semsDisponiveis.length - 1];
-  activeSems = [maisRecente];
-  marcarSemana(maisRecente);
-  updateCharts();
+    /* Selecionar a mais recente por padrao */
+    const maisRecente = semsDisponiveis[semsDisponiveis.length - 1];
+    activeSems = [maisRecente];
+    marcarSemana(maisRecente);
+    updateCharts();
+
+  } catch(err) {
+    console.error('Erro ao carregar banco:', err);
+    showBanner('Erro ao conectar ao banco. Exibindo dados de exemplo. (' + err.message + ')', true);
+    usarDadosFicticios();
+  }
 }
 
 /* -- FALLBACK: dados ficticios quando nao ha banco -- */
@@ -1122,3 +1150,4 @@ window.addEventListener('load', function() {
 
 </script>
 </body>
+</html>
