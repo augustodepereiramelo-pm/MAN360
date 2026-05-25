@@ -230,26 +230,39 @@ window.Modulos.prog_semanal = {
           }
         });
 
-        /* 5. Distribuição por modalidade: OS encerradas no período (data_encerramento) */
-        /* Chaves da programação desta semana */
-        const chavProg = new Set(progSem.map(p => p.os+'|'+(p.cod_servico||'?')));
+        /* 5. Distribuição por modalidade:
+              Fonte: tabela ordens_servico, filtro por data_encerramento no período
+              MCU: usa hh_real_os (coluna Hh Real OS da planilha)
+              Prog: usa hh_real_servico (coluna Hh Real Serviço Decimal)
+              Dentro: OS está na programação da semana
+              Fora: OS não está na programação da semana */
+        const chavProg = new Set(progSem.map(p => p.os));
 
-        const { data: osEnc } = await db
+        const { data: osEncDist } = await db
           .from('ordens_servico')
-          .select('os,cod_servico,tipo_atividade,modalidade,hh_real_servico')
+          .select('os, cod_servico, tipo_atividade, modalidade, hh_real_os, hh_real_servico')
           .eq('status_os', '4 - Encerrada')
           .gte('data_encerramento', dataIni)
           .lte('data_encerramento', dataFim);
 
         if (!ag[k]['_dist']) ag[k]['_dist'] = {};
-        (osEnc||[]).forEach(o => {
-          const modal = (o.modalidade||'OUTROS').toUpperCase().trim();
-          const hhR   = parseFloat(o.hh_real_servico) || 0;
+        (osEncDist||[]).forEach(o => {
+          /* H-h realizado: MCU usa hh_real_os, programável usa hh_real_servico */
+          const hhR = o.tipo_atividade === 'MCU'
+            ? (parseFloat(o.hh_real_os) || 0)
+            : (parseFloat(o.hh_real_servico) || 0);
+          if (!hhR) return;
+
+          const modal = (o.modalidade || 'OUTROS').toUpperCase().trim();
           if (!ag[k]['_dist'][modal]) ag[k]['_dist'][modal] = { mcu:0, dentro:0, fora:0 };
-          const chav = o.os+'|'+(o.cod_servico||'?');
-          if (o.tipo_atividade === 'MCU')       ag[k]['_dist'][modal].mcu   += hhR;
-          else if (chavProg.has(chav))           ag[k]['_dist'][modal].dentro += hhR;
-          else                                   ag[k]['_dist'][modal].fora   += hhR;
+
+          if (o.tipo_atividade === 'MCU') {
+            ag[k]['_dist'][modal].mcu += hhR;
+          } else if (chavProg.has(o.os)) {
+            ag[k]['_dist'][modal].dentro += hhR;
+          } else {
+            ag[k]['_dist'][modal].fora += hhR;
+          }
         });
 
         /* Arredondar */
