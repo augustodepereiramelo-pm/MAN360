@@ -225,8 +225,8 @@ window.Modulos.prog_semanal = {
         const { dataIni, dataFim } = semInfos[key];
         if (!dataIni || !dataFim) continue;
 
-        /* Aderência: OS+CodServico programadas na semana que estão encerradas
-           Busca as OS da programação dessa semana e verifica status na tabela OS */
+        /* Aderência + Eficiência + Distribuição:
+           Busca as OS da programação dessa semana e verifica status/Hh na tabela OS */
         const { data: progSem } = await db
           .from('programacao_semanal')
           .select('os, cod_servico, equipe, hh_previsto')
@@ -234,28 +234,74 @@ window.Modulos.prog_semanal = {
           .eq('ano', semInfos[key].ano);
 
         if (progSem && progSem.length) {
-          /* Buscar status das OS programadas */
           const osNums = [...new Set(progSem.map(p => p.os))];
-          const { data: osStatus } = await db
+
+          /* OS encerradas com Hh real */
+          const { data: osEnc } = await db
             .from('ordens_servico')
-            .select('os, cod_servico, status_os, hh_prev_servico')
+            .select('os, cod_servico, tipo_atividade, hh_prev_servico, hh_real_servico, status_os')
             .in('os', osNums.slice(0, 500))
             .eq('status_os', '4 - Encerrada');
 
-          /* Mapa: os+cod → encerrada */
-          const encerradas = new Set();
-          (osStatus || []).forEach(o => {
-            encerradas.add(o.os + '|' + o.cod_servico);
+          /* Mapa: os+cod → {hhPrev, hhReal, tipo} */
+          const mapaEnc = {};
+          (osEnc || []).forEach(o => {
+            mapaEnc[o.os + '|' + o.cod_servico] = {
+              hhPrev: parseFloat(o.hh_prev_servico) || 0,
+              hhReal: parseFloat(o.hh_real_servico) || 0,
+              tipo:   o.tipo_atividade || '',
+            };
           });
 
-          /* Somar hh_previsto das OS programadas que estão encerradas */
+          /* Para cada serviço programado, verificar se está encerrado */
           progSem.forEach(p => {
             const chave = p.os + '|' + (p.cod_servico || '?');
-            if (!encerradas.has(chave)) return;
-            const eq = p.equipe;
+            const eq    = p.equipe;
             if (!eq || !agrupado[key] || !agrupado[key][eq]) return;
-            agrupado[key][eq].prevEncerrado += parseFloat(p.hh_previsto) || 0;
+
+            const enc = mapaEnc[chave];
+            const hhProg = parseFloat(p.hh_previsto) || 0;
+
+            /* Aderência: soma hh_previsto das OS encerradas na programação */
+            if (enc) {
+              agrupado[key][eq].prevEncerrado += hhProg;
+              /* Eficiência: hh_real das OS encerradas */
+              agrupado[key][eq].hhRealEnc     = (agrupado[key][eq].hhRealEnc || 0) + enc.hhReal;
+              agrupado[key][eq].hhPrevEnc     = (agrupado[key][eq].hhPrevEnc || 0) + hhProg;
+              /* Distribuição: dentro da prog (prog encerrada) */
+              agrupado[key][eq].dentroProg    = (agrupado[key][eq].dentroProg || 0) + enc.hhReal;
+            }
           });
+
+          /* Distribuição: OS encerradas na semana MAS fora da programação
+             = OS encerradas cujo os+cod NÃO está na programação da semana */
+          const chavesProg = new Set(progSem.map(p => p.os + '|' + (p.cod_servico || '?')));
+
+          /* Buscar TODAS as OS encerradas na semana (por data_encerramento) */
+          const { dataIni, dataFim } = semInfos[key];
+          if (dataIni && dataFim) {
+            const { data: osEncPeriodo } = await db
+              .from('ordens_servico')
+              .select('os, cod_servico, tipo_atividade, hh_real_servico, equipe')
+              .eq('status_os', '4 - Encerrada')
+              .gte('data_encerramento', dataIni)
+              .lte('data_encerramento', dataFim);
+
+            (osEncPeriodo || []).forEach(o => {
+              const eq    = o.equipe;
+              const chave = o.os + '|' + o.cod_servico;
+              if (!eq || !agrupado[key] || !agrupado[key][eq]) return;
+              const hhR = parseFloat(o.hh_real_servico) || 0;
+
+              if (o.tipo_atividade === 'MCU') {
+                /* MCU: sempre vai para distribuição MCU */
+                agrupado[key][eq].mcu = (agrupado[key][eq].mcu || 0) + hhR;
+              } else if (!chavesProg.has(chave)) {
+                /* Programável encerrada fora da programação */
+                agrupado[key][eq].foraProg = (agrupado[key][eq].foraProg || 0) + hhR;
+              }
+            });
+          }
         }
 
         /* H-h real via apontamentos no período */
@@ -351,20 +397,35 @@ window.Modulos.prog_semanal = {
 
     ch.c2 = new Chart(document.getElementById('c2'), {
       type:'bar',
-      data:{ labels:eqs, datasets:[{ data:z, backgroundColor:z.map(()=>'#9ca3af'), borderRadius:4 }] },
-      options:{ ...base, scales:{
-        x:{ ticks:{color:tC,font:{size:10}}, grid:{display:false} },
-        y:{ min:0,max:100, ticks:{color:tC,font:{size:10},callback:v=>v+'%'}, grid:{color:gC} }
-      }}
+      data:{ labels:eqs, datasets:[
+        { data:z, backgroundColor:z.map(()=>'#9ca3af'), borderRadius:4, order:2 },
+        { type:'line', data:eqs.map(()=>80), borderColor:'#F8C100', borderWidth:2,
+          borderDash:[6,4], pointRadius:0, fill:false, label:'Meta 80%', order:1,
+          _noTick:true }
+      ]},
+      options:{ ...base,
+        plugins:{ ...base.plugins, legend:{display:false} },
+        scales:{
+          x:{ ticks:{color:tC,font:{size:10}}, grid:{display:false} },
+          y:{ min:0,max:100, ticks:{color:tC,font:{size:10},callback:v=>v+'%'}, grid:{color:gC} }
+        }
+      }
     });
 
     ch.c3 = new Chart(document.getElementById('c3'), {
       type:'bar',
-      data:{ labels:[], datasets:[{ data:[], backgroundColor:[], borderRadius:4 }] },
-      options:{ ...base, scales:{
-        x:{ ticks:{color:tC,font:{size:10}}, grid:{display:false} },
-        y:{ min:0,max:100, ticks:{color:tC,font:{size:10},callback:v=>v+'%'}, grid:{color:gC} }
-      }}
+      data:{ labels:[], datasets:[
+        { data:[], backgroundColor:[], borderRadius:4, order:2 },
+        { type:'line', data:[], borderColor:'#F8C100', borderWidth:2,
+          borderDash:[6,4], pointRadius:0, fill:false, label:'Meta 80%', order:1 }
+      ]},
+      options:{ ...base,
+        plugins:{ ...base.plugins, legend:{display:false} },
+        scales:{
+          x:{ ticks:{color:tC,font:{size:10}}, grid:{display:false} },
+          y:{ min:0,max:100, ticks:{color:tC,font:{size:10},callback:v=>v+'%'}, grid:{color:gC} }
+        }
+      }
     });
 
     ch.c4 = new Chart(document.getElementById('c4'), {
@@ -478,24 +539,44 @@ window.Modulos.prog_semanal = {
     charts.c2.data.datasets[0].data = adr.map(v => v === -1 ? 0 : v);
     charts.c2.data.datasets[0].backgroundColor = adr.map(v =>
       v === -1 ? CINZA : v >= 80 ? G : (v > 0 ? R : '#9ca3af'));
+    charts.c2.data.datasets[1].data = activeEqs.map(()=>80); // linha meta
     charts.c2.update('none');
 
     /* C3 */
     charts.c3.data.labels = semLabels;
     charts.c3.data.datasets[0].data = semVals;
     charts.c3.data.datasets[0].backgroundColor = semVals.map(v => v>=80?G:(v>0?R:'#9ca3af'));
+    charts.c3.data.datasets[1].data = semLabels.map(()=>80); // linha meta
     charts.c3.update('none');
 
-    /* C4 — previsto × realizado */
+    /* C4 — Eficiência: Hh previsto × Hh real das OS encerradas na programação */
+    const hhPrevEnc = activeEqs.map(eq =>
+      activeSems.reduce((s,k) => s + (dadosSem[k]&&dadosSem[k][eq] ? dadosSem[k][eq].hhPrevEnc||0 : 0), 0)
+    );
+    const hhRealEnc = activeEqs.map(eq =>
+      activeSems.reduce((s,k) => s + (dadosSem[k]&&dadosSem[k][eq] ? dadosSem[k][eq].hhRealEnc||0 : 0), 0)
+    );
     charts.c4.data.labels = activeEqs;
-    charts.c4.data.datasets[0].data = prev;
-    charts.c4.data.datasets[1].data = real;
-    charts.c4.data.datasets[1].backgroundColor = real.map((r,i) =>
-      prev[i] && r/prev[i] >= 0.8 ? G : (r > 0 ? R : '#9ca3af'));
+    charts.c4.data.datasets[0].data = hhPrevEnc;
+    charts.c4.data.datasets[1].data = hhRealEnc;
+    charts.c4.data.datasets[1].backgroundColor = hhRealEnc.map((r,i) =>
+      hhPrevEnc[i] && r/hhPrevEnc[i] >= 0.8 ? G : (r > 0 ? R : '#9ca3af'));
     charts.c4.update('none');
 
-    /* C5 — pendente de dados de apontamento completos */
+    /* C5 — Distribuição H-h: MCU / Dentro da prog. / Fora da prog. */
+    const distMCU    = activeEqs.map(eq =>
+      activeSems.reduce((s,k) => s + (dadosSem[k]&&dadosSem[k][eq] ? dadosSem[k][eq].mcu||0 : 0), 0)
+    );
+    const distDentro = activeEqs.map(eq =>
+      activeSems.reduce((s,k) => s + (dadosSem[k]&&dadosSem[k][eq] ? dadosSem[k][eq].dentroProg||0 : 0), 0)
+    );
+    const distFora   = activeEqs.map(eq =>
+      activeSems.reduce((s,k) => s + (dadosSem[k]&&dadosSem[k][eq] ? dadosSem[k][eq].foraProg||0 : 0), 0)
+    );
     charts.c5.data.labels = activeEqs;
+    charts.c5.data.datasets[0].data = distMCU;
+    charts.c5.data.datasets[1].data = distDentro;
+    charts.c5.data.datasets[2].data = distFora;
     charts.c5.update('none');
 
     /* Alertas */
@@ -548,7 +629,12 @@ window.Modulos.prog_semanal = {
         .not('os', 'is', null)
         .neq('os', '');
 
-      if (!preos || !preos.length) return;
+      console.log('Pré-OS com OS:', preos ? preos.length : 0);
+      if (!preos || !preos.length) {
+        const elT = document.getElementById('m-tempo');
+        if (elT) elT.textContent = 'sem dados';
+        return;
+      }
 
       const osNums = [...new Set(preos.map(p => p.os).filter(Boolean))];
       const { data: ordens } = await db
@@ -571,7 +657,12 @@ window.Modulos.prog_semanal = {
         if (diff >= 0 && diff < 365) diffs.push(diff);
       });
 
-      if (!diffs.length) return;
+      console.log('Diffs calculados:', diffs.length, 'média:', diffs.length ? (diffs.reduce((a,b)=>a+b,0)/diffs.length).toFixed(1) : 0);
+      if (!diffs.length) {
+        const elT = document.getElementById('m-tempo');
+        if (elT) elT.textContent = 'sem dados';
+        return;
+      }
       const media = diffs.reduce((a, b) => a + b, 0) / diffs.length;
       const elT = document.getElementById('m-tempo');
       if (elT) {
@@ -579,7 +670,11 @@ window.Modulos.prog_semanal = {
         elT.style.color = media <= 3 ? '#16a34a' : '#d97706';
       }
 
-    } catch(e) { console.warn('Métricas aux:', e); }
+    } catch(e) {
+      console.error('Métricas aux erro:', e);
+      const elT = document.getElementById('m-tempo');
+      if (elT) elT.textContent = 'erro';
+    }
   },
 
   /* ── Filtros ── */
