@@ -22,9 +22,10 @@ async function dbUpsert(tabela, registros, onConflict) {
 
   for (let i = 0; i < registros.length; i += BATCH) {
     const lote = registros.slice(i, i + BATCH);
-    const { error } = await db
-      .from(tabela)
-      .upsert(lote, { onConflict, ignoreDuplicates: false });
+    const opts = onConflict
+      ? { onConflict: onConflict, ignoreDuplicates: false }
+      : { ignoreDuplicates: true };
+    const { error } = await db.from(tabela).upsert(lote, opts);
     if (error) return { count: total, error };
     total += lote.length;
   }
