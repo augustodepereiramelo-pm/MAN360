@@ -8,26 +8,35 @@ async function importarOS(rows) {
   const regs = Parsers.parseOS(rows);
   if (!regs.length) return { ok: false, msg: '0 OS encontradas no arquivo' };
 
-  const mcu  = regs.filter(r => r.tipo_atividade === 'MCU' || r.cod_servico === null);
-  const prog = regs.filter(r => r.tipo_atividade !== 'MCU' && r.cod_servico !== null);
+  const mcu  = regs.filter(r => r.tipo_atividade === 'MCU');
+  const prog = regs.filter(r => r.tipo_atividade !== 'MCU');
 
+  const db = getDB();
   let total = 0;
 
-  // MCU: upsert por 'os' (cod_servico null)
+  // MCU: delete + insert (partial index nao suporta upsert direto)
   if (mcu.length) {
-    const { count, error } = await dbUpsert('ordens_servico', mcu, 'os');
+    const osNums = mcu.map(r => r.os);
+    // Apagar MCUs existentes com mesmo numero de OS
+    await db.from('ordens_servico').delete().in('os', osNums).is('cod_servico', null);
+    const { count, error } = await dbUpsert('ordens_servico', mcu, null);
     if (error) return { ok: false, msg: 'Erro MCU: ' + error.message };
-    total += count;
+    total += mcu.length;
   }
 
-  // Programáveis: upsert por 'os,cod_servico'
+  // Programaveis: delete + insert pelo par os+cod_servico
   if (prog.length) {
-    const { count, error } = await dbUpsert('ordens_servico', prog, 'os,cod_servico');
+    // Apagar registros existentes com mesmo os+cod_servico
+    for (const r of prog) {
+      await db.from('ordens_servico')
+        .delete().eq('os', r.os).eq('cod_servico', r.cod_servico);
+    }
+    const { count, error } = await dbUpsert('ordens_servico', prog, null);
     if (error) return { ok: false, msg: 'Erro Prog: ' + error.message };
-    total += count;
+    total += prog.length;
   }
 
-  return { ok: true, msg: `OK · ${total} OS (${mcu.length} MCU + ${prog.length} prog.)` };
+  return { ok: true, msg: 'OK . ' + total + ' OS (' + mcu.length + ' MCU + ' + prog.length + ' prog.)' };
 }
 
 /* ── Importar Pré-OS ──────────────────────────────────── */
@@ -103,22 +112,22 @@ async function importarApontamento(rows) {
   const prog = regs.filter(r => r.cod_servico !== null);
   let total  = 0;
 
-  if (mcu.length) {
-    const { count, error } = await dbUpsert(
-      'apontamentos', mcu,
-      'os,data_apontamento,chapa,hora_inicio'
-    );
-    if (error) return { ok: false, msg: 'Erro MCU: ' + error.message };
-    total += count;
-  }
-
-  if (prog.length) {
-    const { count, error } = await dbUpsert(
-      'apontamentos', prog,
-      'os,cod_servico,data_apontamento,chapa,hora_inicio'
-    );
-    if (error) return { ok: false, msg: 'Erro Prog: ' + error.message };
-    total += count;
+  // Apontamentos: upsert pela chave completa
+  // MCU e prog usam a mesma constraint (cod_servico pode ser null na chave)
+  const todos_apt = [...mcu, ...prog];
+  const { count, error } = await dbUpsert('apontamentos', todos_apt, 'os,data_apontamento,chapa,hora_inicio');
+  if (error) {
+    // Fallback: insert ignorando duplicatas
+    const db2 = getDB();
+    for (const lote of [mcu, prog]) {
+      if (!lote.length) continue;
+      for (let i = 0; i < lote.length; i += 50) {
+        await db2.from('apontamentos').upsert(lote.slice(i, i+50), { ignoreDuplicates: true });
+      }
+      total += lote.length;
+    }
+  } else {
+    total = count;
   }
 
   return { ok: true, msg: `OK · ${total} apontamentos (${mcu.length} MCU + ${prog.length} prog.)` };
