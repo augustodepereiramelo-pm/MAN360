@@ -510,12 +510,12 @@ body {
       </div>
       <div class="metric">
         <div class="m-label">Pré-OS abertas</div>
-        <div class="m-val" style="color:var(--yellow)">23</div>
+        <div class="m-val" id="m-preos" style="color:var(--yellow)">...</div>
         <div class="m-sub">aguardando planejador</div>
       </div>
       <div class="metric">
         <div class="m-label">Tempo médio Pré → OS</div>
-        <div class="m-val" style="color:var(--green)">2,3 dias</div>
+        <div class="m-val" id="m-tempo" style="color:var(--green)">...</div>
         <div class="m-sub">média geral da safra</div>
       </div>
     </div>
@@ -706,10 +706,71 @@ async function carregarSemanas() {
     activeSems=[ultima];
     marcarSemana(ultima);
     updateCharts();
+    /* Calcular tempo medio Pre-OS -> OS */
+    calcularTempoMedio();
   } catch(err){
     console.error('Erro ao carregar:', err);
     showBanner('Erro ao conectar ao banco: '+err.message, true);
   }
+}
+
+async function calcularTempoMedio() {
+  if(!sb) return;
+  try {
+    /* Buscar pre-ordens que ja viraram OS */
+    const {data:preos}=await sb
+      .from('pre_ordens')
+      .select('os,data_comunicacao')
+      .not('os','is',null)
+      .neq('os','');
+    if(!preos||!preos.length) return;
+    /* Buscar datas de geracao das OS correspondentes */
+    const osNums=preos.map(p=>p.os).filter(Boolean);
+    const {data:ordens}=await sb
+      .from('ordens_servico')
+      .select('os,data_geracao')
+      .in('os',osNums.slice(0,500));
+    if(!ordens||!ordens.length) return;
+    /* Montar mapa OS -> data_geracao */
+    const mapaOS={};
+    ordens.forEach(o=>{ if(o.data_geracao) mapaOS[o.os]=o.data_geracao; });
+    /* Calcular diferenca em dias */
+    const diffs=[];
+    preos.forEach(p=>{
+      const dGer=mapaOS[p.os];
+      if(!dGer||!p.data_comunicacao) return;
+      const parse=s=>{
+        /* Suporta DD/MM/YYYY e YYYY-MM-DD */
+        if(!s) return null;
+        const str=String(s).split(' ')[0];
+        if(str.includes('/')){
+          const [d,m,y]=str.split('/');
+          return new Date(y,m-1,d);
+        }
+        return new Date(str);
+      };
+      const t1=parse(p.data_comunicacao);
+      const t2=parse(dGer);
+      if(!t1||!t2||isNaN(t1)||isNaN(t2)) return;
+      const diff=(t2-t1)/(1000*60*60*24);
+      if(diff>=0&&diff<365) diffs.push(diff);
+    });
+    if(!diffs.length){
+      const el=document.getElementById('m-tempo');
+      if(el) el.textContent='N/A';
+    } else {
+      const media=diffs.reduce((a,b)=>a+b,0)/diffs.length;
+      const el=document.getElementById('m-tempo');
+      if(el){ el.textContent=media.toFixed(1)+' dias'; el.style.color=media<=3?'var(--green)':'var(--red-l)'; }
+    }
+    /* Contar pre-OS abertas (sem OS vinculada) */
+    const {count:abertas}=await sb
+      .from('pre_ordens')
+      .select('*',{count:'exact',head:true})
+      .or('os.is.null,os.eq.');
+    const elP=document.getElementById('m-preos');
+    if(elP&&abertas!=null) elP.textContent=abertas;
+  } catch(e){ console.warn('calcularTempoMedio:',e); }
 }
 
 /* -- DROPDOWN SEMANAS -- */
@@ -1228,4 +1289,12 @@ window.addEventListener('load', function() {
 
 </script>
 </body>
-</html>
+</html          <div class="dd-panel" id="dd-sem">
+          <div style="display:flex;gap:6px;padding:4px 6px 6px;">
+            <button onclick="selectAllSems(true)" style="flex:1;height:24px;font-size:10px;font-family:var(--font);border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--yellow);color:#1a1a1a;cursor:pointer;font-weight:600;">SAFRA (todas)</button>
+            <button onclick="selectAllSems(false)" style="flex:1;height:24px;font-size:10px;font-family:var(--font);border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--dark2);color:var(--text-2);cursor:pointer;">Limpar</button>
+          </div>
+          <div class="dd-sep"></div>
+          <div class="dd-group">Safra 2026</div>
+          <!-- semanas carregadas dinamicamente -->
+        </div>>
