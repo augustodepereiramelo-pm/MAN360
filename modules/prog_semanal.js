@@ -96,11 +96,11 @@ window.Modulos.prog_semanal = {
 <div class="charts-row">
   <div class="chart-wrap">
     <div class="card-title">H-H PROGRAMADO</div>
-    <canvas id="c1" height="180"></canvas>
+    <div class="chart-container"><canvas id="c1"></canvas></div>
   </div>
   <div class="chart-wrap">
     <div class="card-title">ADERÊNCIA DA PROGRAMAÇÃO <span style="font-weight:400;color:#9ca3af">meta: 80%</span></div>
-    <canvas id="c2" height="180"></canvas>
+    <div class="chart-container"><canvas id="c2"></canvas></div>
   </div>
 </div>
 
@@ -108,11 +108,11 @@ window.Modulos.prog_semanal = {
 <div class="charts-row">
   <div class="chart-wrap">
     <div class="card-title">ADERÊNCIA GLOBAL <span style="font-weight:400;color:#9ca3af">semana a semana</span></div>
-    <canvas id="c3" height="180"></canvas>
+    <div class="chart-container"><canvas id="c3"></canvas></div>
   </div>
   <div class="chart-wrap">
     <div class="card-title">EFICIÊNCIA DO PLANEJAMENTO <span style="font-weight:400;color:#9ca3af">previsto × realizado</span></div>
-    <canvas id="c4" height="180"></canvas>
+    <div class="chart-container"><canvas id="c4"></canvas></div>
   </div>
 </div>
 
@@ -126,7 +126,7 @@ window.Modulos.prog_semanal = {
       <span style="color:#2563eb">⬤ Fora da prog.</span>
     </div>
   </div>
-  <canvas id="c5" height="140"></canvas>
+  <div class="chart-container-wide"><canvas id="c5"></canvas></div>
 </div>
 
 <!-- ALERTAS + REPROGRAMADAS -->
