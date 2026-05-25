@@ -75,7 +75,7 @@ async function importarProgSemanal(rows, wb) {
     desc_servico: r.desc_servico || '',   // nunca null — faz parte da chave unica
   }));
 
-  const { count, error } = await dbUpsert('programacao_semanal', limpos, 'os,desc_servico,semana,ano');
+  const { count, error } = await dbUpsert('programacao_semanal', limpos, 'os,desc_servico,equipe,semana,ano');
   if (error) return { ok: false, msg: 'Erro: ' + error.message };
 
   const resolvidos = limpos.filter(r => r.cod_servico !== '?').length;
