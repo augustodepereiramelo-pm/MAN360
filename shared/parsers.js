@@ -21,12 +21,21 @@ function normStr(s) {
 // Data → 'YYYY-MM-DD' ou null
 function normData(v) {
   if (!v) return null;
+  // Date object (com cellDates:true)
   if (v instanceof Date && !isNaN(v)) return v.toISOString().split('T')[0];
   const s = String(v).trim();
+  // ISO: '2026-05-02' ou '2026-05-02 00:00:00'
   const mISO = s.match(/^(\d{4}-\d{2}-\d{2})/);
   if (mISO) return mISO[1];
+  // BR: '02/05/2026'
   const mBR = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
   if (mBR) return mBR[3] + '-' + mBR[2] + '-' + mBR[1];
+  // Número serial do Excel (fallback, caso cellDates:false)
+  const n = parseInt(s);
+  if (!isNaN(n) && n > 40000 && n < 60000) {
+    const d = new Date((n - 25569) * 86400 * 1000);
+    return d.toISOString().split('T')[0];
+  }
   return null;
 }
 
