@@ -833,7 +833,9 @@ window.Modulos.prog_semanal = {
         if (status === '4 - Encerrada') return; /* já encerrada → ok */
         var p = chavesAtual[ch];
         var semMaisAntiga = semsPrev[semsPrev.length - 1]; /* menor semana */
-        var nSems = semsPrev.length + 1; /* semanas anteriores + semana atual */
+        /* nSems = semana atual - semana mais antiga + 1
+           Ex: desde Sem 6 na Sem 8 = 8-6+1 = 3 semanas */
+        var nSems = semAtual - semMaisAntiga + 1;
         reprog.push({
           os: p.os, desc: p.desc_servico||'—', hh: p.hh_previsto||0,
           equipe: p.equipe||'Sem equipe', desde: semMaisAntiga,
