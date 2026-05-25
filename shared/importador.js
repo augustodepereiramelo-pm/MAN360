@@ -113,7 +113,7 @@ async function processarArquivo(file) {
     const reader = new FileReader();
     reader.onload = async ev => {
       try {
-        const wb   = XLSX.read(ev.target.result, { type: 'array' });
+        const wb   = XLSX.read(ev.target.result, { type: 'array', cellDates: true });
         const ws   = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
         const tipo = Parsers.detectarTipo(file.name, rows);
