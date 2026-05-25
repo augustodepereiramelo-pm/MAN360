@@ -69,6 +69,8 @@ function colIdx(hdr, nomes) {
 
 /* ── Detecção de tipo ─────────────────────────────────── */
 function detectarTipo(filename, rows) {
+  console.log('detectarTipo: arquivo=', filename);
+  console.log('detectarTipo: flat[0-10]=', rows ? rows.slice(0,5).flat().slice(0,10).map(c=>String(c||'').slice(0,20)) : []);
   const nome  = filename.toLowerCase();
   const flat  = rows ? rows.slice(0, 12).flat().map(c => normStr(String(c || ''))) : [];
   const texto = flat.join(' ');
@@ -93,9 +95,9 @@ function detectarTipo(filename, rows) {
   if (flat.some(c => c === 'pre-os' || c.startsWith('pre-os')) ||
       (flat.some(c => c.includes('situac')) && flat.some(c => c.includes('pre'))) ||
       nome.includes('preos') || nome.includes('pre_os') || nome.includes('pre-os'))
-    return 'preos';
+    console.log('detectarTipo: PREOS detectado'); return 'preos';
 
-  return 'desconhecido';
+  console.log('detectarTipo: DESCONHECIDO'); return 'desconhecido';
 }
 
 /* ══════════════════════════════════════════════════════
