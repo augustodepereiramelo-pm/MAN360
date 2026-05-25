@@ -313,21 +313,7 @@ function _parseProgAba(rows, ctxIn, tabelaOS) {
     const hhRaw     = cells[5] || cells[4] || cells[3] || '';
     const hh        = parseFloat(String(hhRaw).replace(',', '.')) || null;
 
-    // Datas de previsão
-    const prevStr = cells[3] || '';
-    let dataIniPrev = null, horaIniPrev = null, dataFimPrev = null, horaFimPrev = null;
-    const mPrev = prevStr.match(/(\d{2}\/\d{2})\s+(\d{2}:\d{2})\s+(\d{2}\/\d{2})\s+(\d{2}:\d{2})/);
-    if (mPrev && ano) {
-      dataIniPrev = ano + '-' + mPrev[1].split('/')[1] + '-' + mPrev[1].split('/')[0];
-      horaIniPrev = mPrev[2];
-      dataFimPrev = ano + '-' + mPrev[3].split('/')[1] + '-' + mPrev[3].split('/')[0];
-      horaFimPrev = mPrev[4];
-    } else if (ano) {
-      const mI = (cells[3] || '').match(/(\d{2}\/\d{2})\s+(\d{2}:\d{2})/);
-      const mF = (cells[4] || '').match(/(\d{2}\/\d{2})\s+(\d{2}:\d{2})/);
-      if (mI) { dataIniPrev = ano+'-'+mI[1].split('/')[1]+'-'+mI[1].split('/')[0]; horaIniPrev = mI[2]; }
-      if (mF) { dataFimPrev = ano+'-'+mF[1].split('/')[1]+'-'+mF[1].split('/')[0]; horaFimPrev = mF[2]; }
-    }
+
 
     // Resolver cod_servico cruzando com tabela OS
     let codServico = null;
@@ -351,10 +337,7 @@ function _parseProgAba(rows, ctxIn, tabelaOS) {
       desc_servico:     descBruta.slice(0, 500) || null,
       mis:              mis ? mis.slice(0, 20) : null,
       hh_previsto:      hh,
-      data_inicio_prev: dataIniPrev,
-      hora_inicio_prev: horaIniPrev,
-      data_fim_prev:    dataFimPrev,
-      hora_fim_prev:    horaFimPrev,
+
     });
   });
 
