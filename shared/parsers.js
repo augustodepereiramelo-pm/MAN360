@@ -69,12 +69,16 @@ function colIdx(hdr, nomes) {
 
 /* ── Detecção de tipo ─────────────────────────────────── */
 function detectarTipo(filename, rows) {
-  console.log('detectarTipo: arquivo=', filename);
-  console.log('detectarTipo: flat[0-10]=', rows ? rows.slice(0,5).flat().slice(0,10).map(c=>String(c||'').slice(0,20)) : []);
   const nome  = filename.toLowerCase();
   const flat  = rows ? rows.slice(0, 12).flat().map(c => normStr(String(c || ''))) : [];
   const texto = flat.join(' ');
 
+  // Pré-OS PRIMEIRO — antes de OS, pois pré-OS tem colunas 'OS' e 'Código Serviço'
+  if (flat.some(c => c === 'pre-os') ||
+      nome.includes('preos') || nome.includes('pre_os') || nome.includes('pre-os'))
+    return 'preos';
+
+  // Programação semanal
   if (flat.some(c => c.includes('h-h (hr:mi)')) ||
       texto.includes('prog.semanal') || texto.includes('plano de execu') ||
       (flat.some(c => c.includes('equipe:')) && flat.some(c => c.includes('disponivel'))) ||
@@ -82,22 +86,19 @@ function detectarTipo(filename, rows) {
       nome.includes('programacao') || nome.includes('programaçao') || nome.includes('programação'))
     return 'progsem';
 
-  if ((flat.some(c => c === 'o.s.' || c === 'os') &&
+  // Ordens de serviço — usar 'o.s.' (com pontos) para não confundir com coluna 'OS' da pré-OS
+  if ((flat.some(c => c === 'o.s.') &&
        flat.some(c => c.includes('codigo') && c.includes('servi'))) ||
       nome.includes('bdd_os') || nome.includes('os_cal') ||
       nome.includes('os_mec') || nome.includes('os_civ') || nome.includes('os_ele'))
     return 'os';
 
+  // Apontamentos
   if (flat.some(c => c.includes('hr.in') || c.includes('hr.fim') || c.includes('hr.total')) ||
       texto.includes('apontamento de mao') || nome.includes('apontamento'))
     return 'apontamento';
 
-  if (flat.some(c => c === 'pre-os' || c.startsWith('pre-os')) ||
-      (flat.some(c => c.includes('situac')) && flat.some(c => c.includes('pre'))) ||
-      nome.includes('preos') || nome.includes('pre_os') || nome.includes('pre-os'))
-    console.log('detectarTipo: PREOS detectado'); return 'preos';
-
-  console.log('detectarTipo: DESCONHECIDO'); return 'desconhecido';
+  return 'desconhecido';
 }
 
 /* ══════════════════════════════════════════════════════
