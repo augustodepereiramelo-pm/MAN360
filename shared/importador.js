@@ -1,108 +1,112 @@
 /* ═══════════════════════════════════════════════════════
    MAN360 — Importador
-   Orquestra detecção, parsing e salvamento no banco.
    ═══════════════════════════════════════════════════════ */
 
-/* ── Importar OS ──────────────────────────────────────── */
+/* ── OS ──────────────────────────────────────────────── */
 async function importarOS(rows) {
   const regs = Parsers.parseOS(rows);
-  if (!regs.length) return { ok: false, msg: '0 OS encontradas no arquivo' };
+  if (!regs.length) return { ok: false, msg: '0 OS encontradas' };
 
   const mcu  = regs.filter(r => r.tipo_atividade === 'MCU');
   const prog = regs.filter(r => r.tipo_atividade !== 'MCU');
 
-  // cod_servico nunca e null: MCU='0', Programavel='1','2'...
-  // upsert simples funciona com UNIQUE(os, cod_servico)
+  // UNIQUE(os, cod_servico) — funciona para MCU (cod='1', os único)
+  // e programável (os repete, cod='1','2'...)
   const { count, error } = await dbUpsert('ordens_servico', regs, 'os,cod_servico');
   if (error) return { ok: false, msg: 'Erro: ' + error.message };
 
   return { ok: true, msg: 'OK . ' + regs.length + ' OS (' + mcu.length + ' MCU + ' + prog.length + ' prog.)' };
 }
 
-/* ── Importar Pré-OS ──────────────────────────────────── */
+/* ── Pré-OS ───────────────────────────────────────────── */
 async function importarPreOS(rows) {
   const regs = Parsers.parsePreOS(rows);
-  if (!regs.length) return { ok: false, msg: '0 pré-OS encontradas no arquivo' };
+  if (!regs.length) return { ok: false, msg: '0 pré-OS encontradas' };
 
   const { count, error } = await dbUpsert('pre_ordens', regs, 'pre_os');
   if (error) return { ok: false, msg: 'Erro: ' + error.message };
 
-  return { ok: true, msg: `OK · ${count} pré-OS` };
+  return { ok: true, msg: 'OK . ' + count + ' pré-OS' };
 }
 
-/* ── Importar Programação Semanal ─────────────────────── */
+/* ── Programação Semanal ─────────────────────────────── */
 async function importarProgSemanal(rows, wb) {
-  // Carregar OS do banco para resolver cod_servico
   const db = getDB();
+
+  // Carregar OS do banco para resolver cod_servico
   const { data: osData } = await db
     .from('ordens_servico')
     .select('os, cod_servico, desc_servico')
-    .not('cod_servico', 'is', null);
+    .neq('cod_servico', '1');  // só programáveis com cod > 1 têm múltiplos serviços
 
-  // Montar mapa: { os: [{ cod, desc }, ...] }
+  // Montar mapa: os → [{cod, desc}]
   const tabelaOS = {};
-  (osData || []).forEach(r => {
+  const { data: osAll } = await db
+    .from('ordens_servico')
+    .select('os, cod_servico, desc_servico')
+    .neq('tipo_atividade', 'MCU');
+  (osAll || []).forEach(r => {
     if (!tabelaOS[r.os]) tabelaOS[r.os] = [];
     tabelaOS[r.os].push({ cod: r.cod_servico, desc: r.desc_servico || '' });
   });
 
   const { registros, semana, ano, dataIni, dataFim } = Parsers.parseProgSemanal(rows, wb, tabelaOS);
   if (!registros.length) return { ok: false, msg: '0 serviços encontrados' };
+  if (!semana || !ano)   return { ok: false, msg: 'Semana/ano não identificados no cabeçalho' };
 
-  if (!semana || !ano) return { ok: false, msg: 'Semana/ano não identificados no cabeçalho' };
-
-  // Verificar duplicidade da semana
+  // Verificar duplicidade
   const { count: jaExiste } = await dbCount('programacao_semanal', [
     ['semana', 'eq', semana], ['ano', 'eq', ano],
   ]);
 
   if (jaExiste > 0) {
     const ok = confirm(
-      `Semana ${semana}/${ano} já está importada (${jaExiste} registros).\n` +
-      `Deseja substituir pelos dados do arquivo?`
+      'Semana ' + semana + '/' + ano + ' já importada (' + jaExiste + ' registros).\nSubstituir?'
     );
-    if (!ok) return { ok: false, msg: 'Importação cancelada pelo usuário' };
+    if (!ok) return { ok: false, msg: 'Cancelado' };
     await dbDelete('programacao_semanal', [['semana', semana], ['ano', ano]]);
   }
 
-  // Inserir novos registros
-  const { count, error } = await dbUpsert('programacao_semanal', registros, 'os,cod_servico,semana,ano');
-  if (error) return { ok: false, msg: 'Erro ao salvar: ' + error.message };
+  // Registros com cod_servico null não podem ir para o banco com UNIQUE(os,cod,sem,ano)
+  // Salvar como cod_servico='?' para identificar pendentes de resolução
+  const limpos = registros.map(r => ({
+    ...r,
+    cod_servico: r.cod_servico || '?',
+  }));
 
-  // Resolver cod_servico pendentes (OS ainda não importadas)
-  const semResolucao = registros.filter(r => !r.cod_servico);
-  const resolvidos   = registros.filter(r => r.cod_servico);
+  const { count, error } = await dbUpsert('programacao_semanal', limpos, 'os,cod_servico,semana,ano');
+  if (error) return { ok: false, msg: 'Erro: ' + error.message };
+
+  const resolvidos = limpos.filter(r => r.cod_servico !== '?').length;
+  const pendentes  = limpos.filter(r => r.cod_servico === '?').length;
 
   return {
     ok: true,
-    msg: `OK · ${count} serviços (Sem ${semana}/${ano}) · ${resolvidos.length} com cód.serviço resolvido · ${semResolucao.length} pendentes`,
-    semana, ano,
-    dataIni, dataFim,
+    msg: 'OK . ' + count + ' serviços (Sem ' + semana + '/' + ano + ') . ' +
+         resolvidos + ' com cód. serviço . ' + pendentes + ' pendentes',
+    semana, ano, dataIni, dataFim,
   };
 }
 
-/* ── Importar Apontamentos ───────────────────────────── */
+/* ── Apontamentos ────────────────────────────────────── */
 async function importarApontamento(rows) {
   const regs = Parsers.parseApontamento(rows);
   if (!regs.length) return { ok: false, msg: '0 apontamentos encontrados' };
 
-  // Upsert com chave única: os + cod_servico + data + chapa + hora_inicio
-  // cod_servico pode ser null → precisa tratar MCU separadamente
-  const mcu  = regs.filter(r => r.cod_servico === null);
-  const prog = regs.filter(r => r.cod_servico !== null);
-  let total  = 0;
-
-  // cod_servico nunca e null: MCU='0', Programavel='1','2'...
-  // upsert simples com chave os+cod_servico+data+chapa+hora_inicio
-  const todos_apt = [...mcu, ...prog];
-  const { count, error } = await dbUpsert('apontamentos', todos_apt, 'os,cod_servico,data_apontamento,chapa,hora_inicio');
+  // Chave: UNIQUE(os, data_apontamento, chapa, hora_inicio)
+  // cod_servico fica fora da chave — MCU tem null, prog tem '1','2'...
+  const { count, error } = await dbUpsert(
+    'apontamentos', regs,
+    'os,data_apontamento,chapa,hora_inicio'
+  );
   if (error) return { ok: false, msg: 'Erro: ' + error.message };
-  total = todos_apt.length;
 
-  return { ok: true, msg: `OK · ${total} apontamentos (${mcu.length} MCU + ${prog.length} prog.)` };
+  const mcu  = regs.filter(r => !r.cod_servico).length;
+  const prog = regs.filter(r => r.cod_servico).length;
+  return { ok: true, msg: 'OK . ' + regs.length + ' apontamentos (' + mcu + ' MCU + ' + prog + ' prog.)' };
 }
 
-/* ── Orquestrador principal ──────────────────────────── */
+/* ── Orquestrador ────────────────────────────────────── */
 async function processarArquivo(file) {
   return new Promise(resolve => {
     const reader = new FileReader();
@@ -111,30 +115,19 @@ async function processarArquivo(file) {
         const wb   = XLSX.read(ev.target.result, { type: 'array' });
         const ws   = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
         const tipo = Parsers.detectarTipo(file.name, rows);
 
         let resultado;
         switch (tipo) {
-          case 'os':
-            resultado = await importarOS(rows);
-            break;
-          case 'preos':
-            resultado = await importarPreOS(rows);
-            break;
-          case 'progsem':
-            resultado = await importarProgSemanal(rows, wb);
-            break;
-          case 'apontamento':
-            resultado = await importarApontamento(rows);
-            break;
-          default:
-            resultado = { ok: false, msg: 'Tipo de arquivo não reconhecido' };
+          case 'os':          resultado = await importarOS(rows);               break;
+          case 'preos':       resultado = await importarPreOS(rows);            break;
+          case 'progsem':     resultado = await importarProgSemanal(rows, wb);  break;
+          case 'apontamento': resultado = await importarApontamento(rows);      break;
+          default:            resultado = { ok: false, msg: 'Tipo não reconhecido: ' + file.name };
         }
-
         resolve({ tipo, ...resultado });
       } catch (err) {
-        console.error('Erro ao processar arquivo:', err);
+        console.error(err);
         resolve({ tipo: 'erro', ok: false, msg: 'Erro: ' + err.message });
       }
     };
