@@ -21,12 +21,17 @@ async function importarOS(rows) {
 /* ── Pré-OS ───────────────────────────────────────────── */
 async function importarPreOS(rows) {
   const regs = Parsers.parsePreOS(rows);
-  if (!regs.length) return { ok: false, msg: '0 pré-OS encontradas' };
+  console.log('parsePreOS retornou:', regs.length, 'registros');
+  if (regs.length > 0) console.log('Exemplo:', JSON.stringify(regs[0]));
+  if (!regs.length) return { ok: false, msg: '0 pré-OS encontradas — verifique o formato do arquivo' };
 
   const { count, error } = await dbUpsert('pre_ordens', regs, 'pre_os');
+  console.log('dbUpsert result:', count, error);
   if (error) return { ok: false, msg: 'Erro: ' + error.message };
 
-  return { ok: true, msg: 'OK . ' + count + ' pré-OS' };
+  const aguardando = regs.filter(r => r.situacao === 'Aguardando').length;
+  const comOS      = regs.filter(r => r.os).length;
+  return { ok: true, msg: 'OK . ' + count + ' pré-OS (' + aguardando + ' aguardando · ' + comOS + ' com OS)' };
 }
 
 /* ── Programação Semanal ─────────────────────────────── */
