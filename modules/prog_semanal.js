@@ -277,55 +277,33 @@ window.Modulos.prog_semanal = {
              = OS encerradas cujo os+cod NÃO está na programação da semana */
           const chavesProg = new Set(progSem.map(p => p.os + '|' + (p.cod_servico || '?')));
 
-          /* Distribuição: OS encerradas no período por modalidade/equipe
-             Mapa equipe → modalidade: MEC1→MEC, CAL1/CAL2/CAL3→CAL, CIV1→CIV, ELE1→ELE */
-          const EQ_MODAL = {
-            'MEC1':'MEC','MEC2':'MEC','MEC3':'MEC',
-            'CAL1':'CAL','CAL2':'CAL','CAL3':'CAL','CAL4':'CAL',
-            'CIV1':'CIV','CIV2':'CIV',
-            'ELE1':'ELE','ELE2':'ELE',
-            'AUT1':'AUT','AUT2':'AUT',
-            'INS1':'INS','INS2':'INS',
-          };
-
+          /* Distribuição: OS encerradas no período (data_encerramento dentro da semana)
+             Chaves da programação desta semana para identificar "dentro/fora" */
           const { dataIni, dataFim } = semInfos[key];
           if (dataIni && dataFim) {
-            /* Para cada equipe na programação, buscar OS encerradas no período
-               usando a equipe EXATA da programação semanal como filtro */
-            const eqsNaSemana = [...new Set(progSem.map(p => p.equipe).filter(Boolean))];
-
-            /* Buscar também equipes não na programação para MCU */
-            const todasEqsAtivas = Object.keys(agrupado[key] || {});
-
+            /* Buscar TODAS as OS encerradas no intervalo da semana */
             const { data: osEncPeriodo } = await db
               .from('ordens_servico')
-              .select('os, cod_servico, tipo_atividade, hh_real_servico, equipe, modalidade')
+              .select('os, cod_servico, tipo_atividade, hh_real_servico, modalidade')
               .eq('status_os', '4 - Encerrada')
               .gte('data_encerramento', dataIni)
               .lte('data_encerramento', dataFim);
 
             (osEncPeriodo || []).forEach(o => {
-              const chave   = o.os + '|' + o.cod_servico;
-              const hhR     = parseFloat(o.hh_real_servico) || 0;
+              const hhR  = parseFloat(o.hh_real_servico) || 0;
               if (!hhR) return;
-
-              /* Encontrar a equipe do agrupado que corresponde a essa OS
-                 Primeiro tenta equipe exata, depois por modalidade */
-              let eqAlvo = null;
-              if (o.equipe && agrupado[key] && agrupado[key][o.equipe]) {
-                eqAlvo = o.equipe;
-              } else if (o.modalidade) {
-                /* Buscar equipe do agrupado com mesma modalidade */
-                const modal = o.modalidade.toUpperCase();
-                eqAlvo = todasEqsAtivas.find(eq => (EQ_MODAL[eq] || '').toUpperCase() === modal
-                  || eq.startsWith(modal));
-              }
-              if (!eqAlvo || !agrupado[key] || !agrupado[key][eqAlvo]) return;
+              const chave = o.os + '|' + (o.cod_servico||'?');
+              /* Usar modalidade como chave de agrupamento */
+              const modal = (o.modalidade || '').toUpperCase().trim() || 'OUTROS';
+              if (!agrupado[key]['_dist'])        agrupado[key]['_dist'] = {};
+              if (!agrupado[key]['_dist'][modal]) agrupado[key]['_dist'][modal] = { mcu:0, dentro:0, fora:0 };
 
               if (o.tipo_atividade === 'MCU') {
-                agrupado[key][eqAlvo].mcu = (agrupado[key][eqAlvo].mcu || 0) + hhR;
-              } else if (!chavesProg.has(chave)) {
-                agrupado[key][eqAlvo].foraProg = (agrupado[key][eqAlvo].foraProg || 0) + hhR;
+                agrupado[key]['_dist'][modal].mcu += hhR;
+              } else if (chavesProg.has(chave)) {
+                agrupado[key]['_dist'][modal].dentro += hhR;
+              } else {
+                agrupado[key]['_dist'][modal].fora += hhR;
               }
             });
           }
@@ -491,17 +469,24 @@ window.Modulos.prog_semanal = {
 
     ch.c5 = new Chart(document.getElementById('c5'), {
       type:'bar', indexAxis:'y',
-      data:{ labels:eqs, datasets:[
-        { label:'MCU',             data:z, backgroundColor:R },
-        { label:'Dentro da prog.', data:z, backgroundColor:G },
-        { label:'Fora da prog.',   data:z, backgroundColor:B },
+      data:{ labels:[], datasets:[
+        { label:'MCU',             data:[], backgroundColor:R, borderRadius:0 },
+        { label:'Dentro da prog.', data:[], backgroundColor:G, borderRadius:0 },
+        { label:'Fora da prog.',   data:[], backgroundColor:B, borderRadius:0 },
       ]},
       options:{ responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:false},
-          tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.raw}h`}} },
+        plugins:{
+          legend:{ display:true, position:'top',
+            labels:{ color:tC, font:{size:10}, boxWidth:10, padding:16 } },
+          tooltip:{ callbacks:{ label:function(ctx){ return ' '+ctx.dataset.label+': '+ctx.raw+'h'; } } }
+        },
         scales:{
-          x:{ stacked:true, ticks:{color:tC,font:{size:10},callback:v=>v+'h'}, grid:{color:gC} },
-          y:{ stacked:true, ticks:{color:tC,font:{size:10}}, grid:{display:false} }
+          x:{ stacked:true,
+            ticks:{ color:tC, font:{size:10}, callback:function(v){ return v+'h'; } },
+            grid:{ color:gC } },
+          y:{ stacked:true,
+            ticks:{ color:tC, font:{size:10} },
+            grid:{ display:false } }
         }
       }
     });
@@ -609,26 +594,25 @@ window.Modulos.prog_semanal = {
       hhPrevEnc[i] && r/hhPrevEnc[i] >= 0.8 ? G : (r > 0 ? R : '#9ca3af'));
     charts.c4.update('none');
 
-    /* C5 — Distribuição H-h por MODALIDADE (CAL, MEC, CIV, ELE, AUT, INS...)
-       Agrupa equipes pela modalidade: CAL1+CAL2+CAL3 → CAL */
-    const modalMap = {};
-    activeEqs.forEach(eq => {
-      /* Extrair modalidade: 'MEC1' → 'MEC', 'CAL2' → 'CAL' */
-      const modal = eq.replace(/\d+$/, '');
-      if (!modalMap[modal]) modalMap[modal] = { mcu:0, dentro:0, fora:0 };
-      activeSems.forEach(k => {
-        if (dadosSem[k] && dadosSem[k][eq]) {
-          modalMap[modal].mcu   += dadosSem[k][eq].mcu||0;
-          modalMap[modal].dentro += dadosSem[k][eq].dentroProg||0;
-          modalMap[modal].fora  += dadosSem[k][eq].foraProg||0;
-        }
+    /* C5 — Distribuição H-h por MODALIDADE
+       Fonte: _dist[semana][modalidade] = {mcu, dentro, fora}
+       Baseado em data_encerramento dentro do período da semana selecionada */
+    const modalAcum = {};
+    activeSems.forEach(k => {
+      const dist = dadosSem[k] && dadosSem[k]['_dist'];
+      if (!dist) return;
+      Object.keys(dist).forEach(modal => {
+        if (!modalAcum[modal]) modalAcum[modal] = { mcu:0, dentro:0, fora:0 };
+        modalAcum[modal].mcu    += dist[modal].mcu   || 0;
+        modalAcum[modal].dentro += dist[modal].dentro || 0;
+        modalAcum[modal].fora   += dist[modal].fora   || 0;
       });
     });
-    const modals   = Object.keys(modalMap).sort();
+    const modals = Object.keys(modalAcum).sort();
     charts.c5.data.labels = modals;
-    charts.c5.data.datasets[0].data = modals.map(m => Math.round(modalMap[m].mcu*10)/10);
-    charts.c5.data.datasets[1].data = modals.map(m => Math.round(modalMap[m].dentro*10)/10);
-    charts.c5.data.datasets[2].data = modals.map(m => Math.round(modalMap[m].fora*10)/10);
+    charts.c5.data.datasets[0].data = modals.map(m => Math.round(modalAcum[m].mcu*10)/10);
+    charts.c5.data.datasets[1].data = modals.map(m => Math.round(modalAcum[m].dentro*10)/10);
+    charts.c5.data.datasets[2].data = modals.map(m => Math.round(modalAcum[m].fora*10)/10);
     charts.c5.update('none');
 
     /* Alertas */
