@@ -132,7 +132,7 @@ window.Modulos.prog_semanal = {
       <span id="repr-count" style="font-size:10px;color:#9ca3af"></span>
     </div>
     <div id="repr-body">
-      <div style="padding:12px 0;font-size:12px;color:#9ca3af;text-align:center">Selecione uma única semana</div>
+      <div style="padding:12px 0;font-size:12px;color:#9ca3af;text-align:center">Carregando...</div>
     </div>
   </div>
 </div>
@@ -277,28 +277,55 @@ window.Modulos.prog_semanal = {
              = OS encerradas cujo os+cod NÃO está na programação da semana */
           const chavesProg = new Set(progSem.map(p => p.os + '|' + (p.cod_servico || '?')));
 
-          /* Buscar TODAS as OS encerradas na semana (por data_encerramento) */
+          /* Distribuição: OS encerradas no período por modalidade/equipe
+             Mapa equipe → modalidade: MEC1→MEC, CAL1/CAL2/CAL3→CAL, CIV1→CIV, ELE1→ELE */
+          const EQ_MODAL = {
+            'MEC1':'MEC','MEC2':'MEC','MEC3':'MEC',
+            'CAL1':'CAL','CAL2':'CAL','CAL3':'CAL','CAL4':'CAL',
+            'CIV1':'CIV','CIV2':'CIV',
+            'ELE1':'ELE','ELE2':'ELE',
+            'AUT1':'AUT','AUT2':'AUT',
+            'INS1':'INS','INS2':'INS',
+          };
+
           const { dataIni, dataFim } = semInfos[key];
           if (dataIni && dataFim) {
+            /* Para cada equipe na programação, buscar OS encerradas no período
+               usando a equipe EXATA da programação semanal como filtro */
+            const eqsNaSemana = [...new Set(progSem.map(p => p.equipe).filter(Boolean))];
+
+            /* Buscar também equipes não na programação para MCU */
+            const todasEqsAtivas = Object.keys(agrupado[key] || {});
+
             const { data: osEncPeriodo } = await db
               .from('ordens_servico')
-              .select('os, cod_servico, tipo_atividade, hh_real_servico, equipe')
+              .select('os, cod_servico, tipo_atividade, hh_real_servico, equipe, modalidade')
               .eq('status_os', '4 - Encerrada')
               .gte('data_encerramento', dataIni)
               .lte('data_encerramento', dataFim);
 
             (osEncPeriodo || []).forEach(o => {
-              const eq    = o.equipe;
-              const chave = o.os + '|' + o.cod_servico;
-              if (!eq || !agrupado[key] || !agrupado[key][eq]) return;
-              const hhR = parseFloat(o.hh_real_servico) || 0;
+              const chave   = o.os + '|' + o.cod_servico;
+              const hhR     = parseFloat(o.hh_real_servico) || 0;
+              if (!hhR) return;
+
+              /* Encontrar a equipe do agrupado que corresponde a essa OS
+                 Primeiro tenta equipe exata, depois por modalidade */
+              let eqAlvo = null;
+              if (o.equipe && agrupado[key] && agrupado[key][o.equipe]) {
+                eqAlvo = o.equipe;
+              } else if (o.modalidade) {
+                /* Buscar equipe do agrupado com mesma modalidade */
+                const modal = o.modalidade.toUpperCase();
+                eqAlvo = todasEqsAtivas.find(eq => (EQ_MODAL[eq] || '').toUpperCase() === modal
+                  || eq.startsWith(modal));
+              }
+              if (!eqAlvo || !agrupado[key] || !agrupado[key][eqAlvo]) return;
 
               if (o.tipo_atividade === 'MCU') {
-                /* MCU: sempre vai para distribuição MCU */
-                agrupado[key][eq].mcu = (agrupado[key][eq].mcu || 0) + hhR;
+                agrupado[key][eqAlvo].mcu = (agrupado[key][eqAlvo].mcu || 0) + hhR;
               } else if (!chavesProg.has(chave)) {
-                /* Programável encerrada fora da programação */
-                agrupado[key][eq].foraProg = (agrupado[key][eq].foraProg || 0) + hhR;
+                agrupado[key][eqAlvo].foraProg = (agrupado[key][eqAlvo].foraProg || 0) + hhR;
               }
             });
           }
@@ -581,6 +608,8 @@ window.Modulos.prog_semanal = {
 
     /* Alertas */
     this._atualizarAlertas(adr, activeEqs, eqsPendentes);
+    /* Reprogramadas */
+    this._atualizarReprogramadas();
   },
 
   _atualizarAlertas(adr, activeEqs, eqsPendentes) {
@@ -588,20 +617,131 @@ window.Modulos.prog_semanal = {
     if (!alertasEl) return;
     const alertas = [];
 
+    /* Equipes sem OS importada */
     eqsPendentes.forEach(eq => {
       if (activeEqs.includes(eq))
-        alertas.push({ cls:'c-amber', icon:'ti-clock', txt:`<strong>${eq}</strong>: OS não importadas — aderência indisponível` });
+        alertas.push({ cls:'c-amber', icon:'ti-alert-circle',
+          txt: `<strong>${eq}</strong>: OS não importadas — aderência indisponível` });
     });
+
+    /* Aderência abaixo da meta */
     activeEqs.forEach((eq,i) => {
       if (!eqsPendentes.includes(eq) && adr[i] >= 0 && adr[i] < 80 && adr[i] > 0)
-        alertas.push({ cls:'c-red', icon:'ti-trending-down', txt:`<strong>${eq} com aderência de ${adr[i]}%</strong> — abaixo da meta de 80%` });
+        alertas.push({ cls:'c-red', icon:'ti-trending-down',
+          txt: `<strong>${eq}</strong>: aderência de <strong>${adr[i]}%</strong> — abaixo da meta de 80%` });
     });
-    if (!alertas.length)
-      alertasEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:#9ca3af;text-align:center">Nenhum ponto de atenção no período selecionado</div>';
-    else
+
+    /* Sem aderência (0%) com OS importada */
+    activeEqs.forEach((eq,i) => {
+      if (!eqsPendentes.includes(eq) && adr[i] === 0)
+        alertas.push({ cls:'c-amber', icon:'ti-circle-off',
+          txt: `<strong>${eq}</strong>: nenhuma OS encerrada no período programado` });
+    });
+
+    if (!alertas.length) {
+      alertasEl.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:#16a34a;font-size:12px">
+        <i class="ti ti-circle-check" style="font-size:18px"></i>
+        <span>Todas as equipes com OS importadas atingiram a meta de 80%</span>
+      </div>`;
+    } else {
       alertasEl.innerHTML = alertas.map(a =>
-        `<div class="alert-li"><i class="ti ${a.icon} ${a.cls}"></i><div>${a.txt}</div></div>`
+        `<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">
+          <i class="ti ${a.icon} ${a.cls}" style="font-size:16px;flex-shrink:0;margin-top:1px"></i>
+          <div>${a.txt}</div>
+        </div>`
       ).join('');
+    }
+  },
+
+  /* ── Reprogramadas não executadas ── */
+  async _atualizarReprogramadas() {
+    const reprEl = document.getElementById('repr-body');
+    const cntEl  = document.getElementById('repr-count');
+    if (!reprEl) return;
+
+    const { activeSems } = this._state;
+    if (!activeSems.length) {
+      reprEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:#9ca3af;text-align:center">Selecione uma semana</div>';
+      return;
+    }
+
+    try {
+      const db = getDB();
+      let todasReprog = [];
+
+      for (const key of activeSems) {
+        const [semana, ano] = key.split('/').map(Number);
+
+        /* OS programadas na semana que NÃO foram encerradas */
+        const { data: progSem } = await db
+          .from('programacao_semanal')
+          .select('os, cod_servico, equipe, desc_servico, hh_previsto')
+          .eq('semana', semana).eq('ano', ano);
+
+        if (!progSem || !progSem.length) continue;
+
+        const osNums = [...new Set(progSem.map(p => p.os))];
+        const { data: osStatus } = await db
+          .from('ordens_servico')
+          .select('os, cod_servico, status_os, hh_prev_servico')
+          .in('os', osNums.slice(0, 500));
+
+        const mapaStatus = {};
+        (osStatus || []).forEach(o => {
+          mapaStatus[o.os + '|' + o.cod_servico] = o.status_os;
+        });
+
+        progSem.forEach(p => {
+          const chave  = p.os + '|' + (p.cod_servico || '?');
+          const status = mapaStatus[chave] || 'Desconhecido';
+          if (status !== '4 - Encerrada') {
+            todasReprog.push({ ...p, status, semana });
+          }
+        });
+      }
+
+      if (cntEl) cntEl.textContent = todasReprog.length + ' serviço' + (todasReprog.length !== 1 ? 's' : '');
+
+      if (!todasReprog.length) {
+        reprEl.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:#16a34a;font-size:12px">
+          <i class="ti ti-circle-check" style="font-size:18px"></i>
+          <span>Todos os serviços programados foram executados</span>
+        </div>`;
+        return;
+      }
+
+      /* Agrupar por equipe */
+      const porEquipe = {};
+      todasReprog.forEach(r => {
+        const eq = r.equipe || 'Sem equipe';
+        if (!porEquipe[eq]) porEquipe[eq] = [];
+        porEquipe[eq].push(r);
+      });
+
+      reprEl.innerHTML = Object.entries(porEquipe).map(([eq, items]) => `
+        <div style="margin-bottom:12px">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#6b7280;
+            text-transform:uppercase;margin-bottom:6px;padding:4px 0;
+            border-bottom:1px solid var(--border)">${eq}</div>
+          ${items.map(r => `
+            <div style="display:flex;align-items:center;gap:8px;padding:5px 0;
+              border-bottom:1px solid var(--border);font-size:11px">
+              <span style="font-weight:600;color:#374151;min-width:52px">${r.os}</span>
+              <span style="flex:1;color:#6b7280;overflow:hidden;text-overflow:ellipsis;
+                white-space:nowrap" title="${r.desc_servico||''}">${r.desc_servico||'—'}</span>
+              <span style="color:#9ca3af;font-size:10px;min-width:40px;text-align:right">
+                ${r.hh_previsto||0}h</span>
+              <span style="padding:2px 6px;border-radius:4px;font-size:9px;font-weight:600;
+                background:${r.status==='3 - Interrompida'?'#fef3c7':'#fee2e2'};
+                color:${r.status==='3 - Interrompida'?'#92400e':'#dc2626'}">
+                ${r.status}</span>
+            </div>`).join('')}
+        </div>`).join('');
+
+    } catch(e) {
+      console.error('Reprogramadas:', e);
+      reprEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:#dc2626">Erro ao carregar</div>';
+    }
   },
 
   /* ── Métricas auxiliares ── */
