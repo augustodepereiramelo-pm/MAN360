@@ -225,25 +225,33 @@ window.Modulos.prog_semanal = {
         const { dataIni, dataFim } = semInfos[key];
         if (!dataIni || !dataFim) continue;
 
-        /* OS encerradas dentro do período da semana */
-        const { data: osEnc } = await db
-          .from('ordens_servico')
-          .select('os,equipe,hh_prev_servico,data_encerramento')
-          .gte('data_encerramento', dataIni)
-          .lte('data_encerramento', dataFim);
+        /* Aderência: OS+CodServico programadas na semana que estão encerradas
+           Busca as OS da programação dessa semana e verifica status na tabela OS */
+        const { data: progSem } = await db
+          .from('programacao_semanal')
+          .select('os, cod_servico, equipe, hh_previsto')
+          .eq('semana', semInfos[key].semana)
+          .eq('ano', semInfos[key].ano);
 
-        /* Para cada OS encerrada, somar H-h previsto na programação dessa semana */
-        if (osEnc && osEnc.length) {
-          const osEncNums = new Set(osEnc.map(o => o.os));
-          /* Buscar programação da semana que tem essas OS */
-          const { data: progEnc } = await db
-            .from('programacao_semanal')
-            .select('os,equipe,hh_previsto')
-            .eq('semana', semInfos[key].semana)
-            .eq('ano', semInfos[key].ano)
-            .in('os', [...osEncNums].slice(0, 500));
+        if (progSem && progSem.length) {
+          /* Buscar status das OS programadas */
+          const osNums = [...new Set(progSem.map(p => p.os))];
+          const { data: osStatus } = await db
+            .from('ordens_servico')
+            .select('os, cod_servico, status_os, hh_prev_servico')
+            .in('os', osNums.slice(0, 500))
+            .eq('status_os', '4 - Encerrada');
 
-          (progEnc || []).forEach(p => {
+          /* Mapa: os+cod → encerrada */
+          const encerradas = new Set();
+          (osStatus || []).forEach(o => {
+            encerradas.add(o.os + '|' + o.cod_servico);
+          });
+
+          /* Somar hh_previsto das OS programadas que estão encerradas */
+          progSem.forEach(p => {
+            const chave = p.os + '|' + (p.cod_servico || '?');
+            if (!encerradas.has(chave)) return;
             const eq = p.equipe;
             if (!eq || !agrupado[key] || !agrupado[key][eq]) return;
             agrupado[key][eq].prevEncerrado += parseFloat(p.hh_previsto) || 0;
@@ -520,47 +528,57 @@ window.Modulos.prog_semanal = {
     try {
       const db = getDB();
 
-      /* Pré-OS abertas: situacao não é 'OS Gerada' / 'Encerrada' e os é null */
+      /* ── PRÉ-OS ABERTAS ──────────────────────────────
+         Contagem das Pré-Ordens com Situação "Aguardando"
+         Independe da semana selecionada — estado atual   */
       const { count: abertas } = await db
         .from('pre_ordens')
-        .select('*', { count:'exact', head:true })
-        .or('os.is.null,os.eq.');
+        .select('*', { count: 'exact', head: true })
+        .eq('situacao', 'Aguardando');
       const elP = document.getElementById('m-preos');
       if (elP && abertas != null) elP.textContent = abertas;
 
-      /* Tempo médio Pré-OS → OS:
-         Para cada pré-OS com OS vinculada, calcular (data_geracao_os - data_comunicacao_preos) */
+      /* ── TEMPO MÉDIO PRÉ-OS → OS ────────────────────
+         Para cada Pré-OS com OS vinculada:
+           tempo = data_geracao (OS) - data_comunicacao (Pré-OS)
+         Média de todos os registros da safra              */
       const { data: preos } = await db
         .from('pre_ordens')
-        .select('os,data_comunicacao')
-        .not('os','is',null).neq('os','');
+        .select('os, data_comunicacao')
+        .not('os', 'is', null)
+        .neq('os', '');
+
       if (!preos || !preos.length) return;
 
       const osNums = [...new Set(preos.map(p => p.os).filter(Boolean))];
       const { data: ordens } = await db
         .from('ordens_servico')
-        .select('os,data_geracao')
-        .in('os', osNums.slice(0, 500));
-      if (!ordens) return;
+        .select('os, data_geracao')
+        .in('os', osNums.slice(0, 500))
+        .not('data_geracao', 'is', null);
+
+      if (!ordens || !ordens.length) return;
 
       const mapaGer = {};
-      ordens.forEach(o => { if (o.data_geracao) mapaGer[o.os] = o.data_geracao; });
+      ordens.forEach(o => { mapaGer[o.os] = o.data_geracao; });
 
       const diffs = [];
       preos.forEach(p => {
-        const dGer = mapaGer[p.os];
-        if (!dGer || !p.data_comunicacao) return;
-        const diff = (new Date(dGer) - new Date(p.data_comunicacao)) / 86400000;
+        const dGer  = mapaGer[p.os];
+        const dCom  = p.data_comunicacao;
+        if (!dGer || !dCom) return;
+        const diff = (new Date(dGer) - new Date(dCom)) / 86400000;
         if (diff >= 0 && diff < 365) diffs.push(diff);
       });
 
       if (!diffs.length) return;
-      const media = diffs.reduce((a,b)=>a+b,0) / diffs.length;
+      const media = diffs.reduce((a, b) => a + b, 0) / diffs.length;
       const elT = document.getElementById('m-tempo');
       if (elT) {
         elT.textContent = media.toFixed(1) + ' dias';
         elT.style.color = media <= 3 ? '#16a34a' : '#d97706';
       }
+
     } catch(e) { console.warn('Métricas aux:', e); }
   },
 
