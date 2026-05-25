@@ -615,42 +615,105 @@ window.Modulos.prog_semanal = {
   _atualizarAlertas(adr, activeEqs, eqsPendentes) {
     const alertasEl = document.getElementById('alertas-body');
     if (!alertasEl) return;
+
+    const { activeSems, semanas, dadosSem } = this._state;
     const alertas = [];
 
     /* Equipes sem OS importada */
-    eqsPendentes.forEach(eq => {
+    eqsPendentes.forEach(function(eq) {
       if (activeEqs.includes(eq))
-        alertas.push({ cls:'c-amber', icon:'ti-alert-circle',
-          txt: `<strong>${eq}</strong>: OS não importadas — aderência indisponível` });
+        alertas.push({ cor:'amber', icone:'ti-alert-circle',
+          txt: '<strong>' + eq + '</strong>: OS não importadas — aderência indisponível' });
     });
 
-    /* Aderência abaixo da meta */
-    activeEqs.forEach((eq,i) => {
-      if (!eqsPendentes.includes(eq) && adr[i] >= 0 && adr[i] < 80 && adr[i] > 0)
-        alertas.push({ cls:'c-red', icon:'ti-trending-down',
-          txt: `<strong>${eq}</strong>: aderência de <strong>${adr[i]}%</strong> — abaixo da meta de 80%` });
-    });
+    activeEqs.forEach(function(eq, i) {
+      if (eqsPendentes.includes(eq)) return;
 
-    /* Sem aderência (0%) com OS importada */
-    activeEqs.forEach((eq,i) => {
-      if (!eqsPendentes.includes(eq) && adr[i] === 0)
-        alertas.push({ cls:'c-amber', icon:'ti-circle-off',
-          txt: `<strong>${eq}</strong>: nenhuma OS encerrada no período programado` });
+      /* Aderência atual */
+      const adrAtual = adr[i];
+
+      /* Sem OS encerrada no período */
+      if (adrAtual === 0) {
+        alertas.push({ cor:'amber', icone:'ti-circle-off',
+          txt: '<strong>' + eq + '</strong>: nenhuma OS encerrada na semana programada' });
+        return;
+      }
+
+      /* Abaixo da meta */
+      if (adrAtual > 0 && adrAtual < 80) {
+        var msg = '<strong>' + eq + '</strong>: aderência de <strong>' + adrAtual + '%</strong> — abaixo da meta de 80%';
+
+        /* Verificar se foi abaixo da meta nas semanas anteriores também */
+        var semsOrdenadas = [...semanas].sort(function(a,b){ return a.semana - b.semana; });
+        var semsAtivas = activeSems.slice().sort();
+        var ultimaSem = semsAtivas[semsAtivas.length - 1];
+        var idxUlt = semsOrdenadas.findIndex(function(s){ return (s.semana+'/'+s.ano) === ultimaSem; });
+
+        var semsConsecutivas = 0;
+        for (var k = idxUlt - 1; k >= 0; k--) {
+          var keyAnt = semsOrdenadas[k].semana + '/' + semsOrdenadas[k].ano;
+          var dadosAnt = dadosSem[keyAnt] && dadosSem[keyAnt][eq];
+          if (!dadosAnt) break;
+          var adrAnt = dadosAnt.prev ? Math.round(dadosAnt.prevEncerrado / dadosAnt.prev * 100) : 0;
+          if (adrAnt < 80) semsConsecutivas++;
+          else break;
+        }
+
+        if (semsConsecutivas >= 1)
+          msg += ' — <strong>' + (semsConsecutivas + 1) + ' semanas consecutivas</strong> abaixo da meta';
+
+        alertas.push({ cor:'red', icone:'ti-trending-down', txt: msg });
+      }
+
+      /* Aderência acima da meta — verificar eficiência */
+      var hhPrevEnc = activeSems.reduce(function(s, k) {
+        return s + ((dadosSem[k] && dadosSem[k][eq]) ? dadosSem[k][eq].hhPrevEnc||0 : 0);
+      }, 0);
+      var hhRealEnc = activeSems.reduce(function(s, k) {
+        return s + ((dadosSem[k] && dadosSem[k][eq]) ? dadosSem[k][eq].hhRealEnc||0 : 0);
+      }, 0);
+      if (hhPrevEnc > 0) {
+        var efic = Math.round(hhRealEnc / hhPrevEnc * 100);
+        if (efic < 80 && adrAtual >= 80) {
+          alertas.push({ cor:'amber', icone:'ti-chart-bar',
+            txt: '<strong>' + eq + '</strong>: aderência OK mas eficiência em <strong>' + efic + '%</strong> — H-h realizado abaixo do previsto nas OS encerradas' });
+        }
+        /* Eficiência muito acima — pode indicar subestimativa de H-h */
+        if (efic > 130) {
+          alertas.push({ cor:'amber', icone:'ti-alert-triangle',
+            txt: '<strong>' + eq + '</strong>: eficiência em <strong>' + efic + '%</strong> — H-h realizado muito acima do previsto, revisar dimensionamento' });
+        }
+      }
+
+      /* H-h programado muito alto comparado à média da safra */
+      var totalPrevEq = activeSems.reduce(function(s, k) {
+        return s + ((dadosSem[k] && dadosSem[k][eq]) ? dadosSem[k][eq].prev||0 : 0);
+      }, 0);
+      var mediasSem = semanas.map(function(s) {
+        var k = s.semana + '/' + s.ano;
+        return (dadosSem[k] && dadosSem[k][eq]) ? dadosSem[k][eq].prev||0 : 0;
+      }).filter(function(v){ return v > 0; });
+      if (mediasSem.length > 1) {
+        var media = mediasSem.reduce(function(a,b){ return a+b; }, 0) / mediasSem.length;
+        if (totalPrevEq > media * 1.4)
+          alertas.push({ cor:'blue', icone:'ti-info-circle',
+            txt: '<strong>' + eq + '</strong>: H-h programado nessa semana (' + Math.round(totalPrevEq) + 'h) acima da média histórica (' + Math.round(media) + 'h/semana)' });
+      }
     });
 
     if (!alertas.length) {
-      alertasEl.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:#16a34a;font-size:12px">
-        <i class="ti ti-circle-check" style="font-size:18px"></i>
-        <span>Todas as equipes com OS importadas atingiram a meta de 80%</span>
-      </div>`;
-    } else {
-      alertasEl.innerHTML = alertas.map(a =>
-        `<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">
-          <i class="ti ${a.icon} ${a.cls}" style="font-size:16px;flex-shrink:0;margin-top:1px"></i>
-          <div>${a.txt}</div>
-        </div>`
-      ).join('');
+      alertasEl.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:#16a34a;font-size:12px"><i class="ti ti-circle-check" style="font-size:18px"></i><span>Nenhum ponto de atenção para as equipes no período selecionado</span></div>';
+      return;
     }
+
+    var corMap = { red:'#dc2626', amber:'#d97706', blue:'#2563eb' };
+    var bgMap  = { red:'#fee2e2', amber:'#fef3c7', blue:'#dbeafe' };
+    alertasEl.innerHTML = alertas.map(function(a) {
+      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px">'
+           + '<i class="ti ' + a.icone + '" style="font-size:16px;flex-shrink:0;margin-top:1px;color:' + corMap[a.cor] + '"></i>'
+           + '<div>' + a.txt + '</div>'
+           + '</div>';
+    }).join('');
   },
 
   /* ── Reprogramadas não executadas ── */
@@ -659,7 +722,8 @@ window.Modulos.prog_semanal = {
     const cntEl  = document.getElementById('repr-count');
     if (!reprEl) return;
 
-    const { activeSems } = this._state;
+    const { activeSems, semanas, eqsPendentes } = this._state;
+
     if (!activeSems.length) {
       reprEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:#9ca3af;text-align:center">Selecione uma semana</div>';
       return;
@@ -667,153 +731,113 @@ window.Modulos.prog_semanal = {
 
     try {
       const db = getDB();
-      let todasReprog = [];
+      const semsOrdenadas  = [...semanas].sort((a,b) => a.semana - b.semana);
+      const semAtualKey    = activeSems[activeSems.length - 1];
+      const [semAtual, anoAtual] = semAtualKey.split('/').map(Number);
 
-      for (const key of activeSems) {
-        const [semana, ano] = key.split('/').map(Number);
+      /* OS programadas na semana */
+      const { data: progAtual } = await db
+        .from('programacao_semanal')
+        .select('os, cod_servico, equipe, desc_servico, hh_previsto')
+        .eq('semana', semAtual).eq('ano', anoAtual);
 
-        /* OS programadas na semana que NÃO foram encerradas */
-        const { data: progSem } = await db
-          .from('programacao_semanal')
-          .select('os, cod_servico, equipe, desc_servico, hh_previsto')
-          .eq('semana', semana).eq('ano', ano);
+      if (!progAtual || !progAtual.length) {
+        reprEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:#9ca3af;text-align:center">Sem programação para a semana selecionada</div>';
+        return;
+      }
 
-        if (!progSem || !progSem.length) continue;
+      const osNums = [...new Set(progAtual.map(p => p.os))];
+      const { data: osStatus } = await db
+        .from('ordens_servico').select('os, cod_servico, status_os')
+        .in('os', osNums.slice(0, 500));
 
-        const osNums = [...new Set(progSem.map(p => p.os))];
-        const { data: osStatus } = await db
-          .from('ordens_servico')
-          .select('os, cod_servico, status_os, hh_prev_servico')
-          .in('os', osNums.slice(0, 500));
+      const mapaStatus = {};
+      (osStatus || []).forEach(o => { mapaStatus[o.os + '|' + (o.cod_servico||'?')] = o.status_os; });
 
-        const mapaStatus = {};
-        (osStatus || []).forEach(o => {
-          mapaStatus[o.os + '|' + o.cod_servico] = o.status_os;
-        });
+      /* Filtrar não encerradas */
+      const naoEnc = progAtual.filter(p => {
+        const st = mapaStatus[p.os + '|' + (p.cod_servico||'?')] || '';
+        return st !== '4 - Encerrada';
+      });
 
-        progSem.forEach(p => {
-          const chave  = p.os + '|' + (p.cod_servico || '?');
-          const status = mapaStatus[chave] || 'Desconhecido';
-          if (status !== '4 - Encerrada') {
-            todasReprog.push({ ...p, status, semana });
+      if (!naoEnc.length) {
+        if (cntEl) cntEl.textContent = '';
+        reprEl.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:#16a34a;font-size:12px"><i class="ti ti-circle-check" style="font-size:18px"></i><span>Todos os serviços programados foram executados nessa semana</span></div>';
+        return;
+      }
+
+      /* Rastrear histórico nas semanas anteriores */
+      const semAnt = semsOrdenadas.filter(s => s.semana < semAtual || (s.semana === semAtual && s.ano < anoAtual)).reverse();
+      const chavesNaoEnc = naoEnc.map(p => p.os + '|' + (p.cod_servico||'?'));
+      const historico = {};
+
+      for (const semInfo of semAnt) {
+        const { data: progAnt } = await db
+          .from('programacao_semanal').select('os, cod_servico')
+          .eq('semana', semInfo.semana).eq('ano', semInfo.ano);
+        (progAnt || []).forEach(p => {
+          const ch = p.os + '|' + (p.cod_servico||'?');
+          if (chavesNaoEnc.includes(ch)) {
+            if (!historico[ch]) historico[ch] = [];
+            historico[ch].push(semInfo.semana);
           }
         });
       }
 
-      if (cntEl) cntEl.textContent = todasReprog.length + ' serviço' + (todasReprog.length !== 1 ? 's' : '');
-
-      if (!todasReprog.length) {
-        reprEl.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:#16a34a;font-size:12px">
-          <i class="ti ti-circle-check" style="font-size:18px"></i>
-          <span>Todos os serviços programados foram executados</span>
-        </div>`;
-        return;
-      }
-
       /* Agrupar por equipe */
       const porEquipe = {};
-      todasReprog.forEach(r => {
-        const eq = r.equipe || 'Sem equipe';
+      naoEnc.forEach(p => {
+        const eq  = p.equipe || 'Sem equipe';
+        const ch  = p.os + '|' + (p.cod_servico||'?');
+        const prev = historico[ch] || [];
+        const desde = 'Sem ' + (prev.length ? prev[prev.length-1] : semAtual);
+        const nSems = prev.length + 1;
         if (!porEquipe[eq]) porEquipe[eq] = [];
-        porEquipe[eq].push(r);
+        porEquipe[eq].push({ os: p.os, desc: p.desc_servico||'—', hh: p.hh_previsto||0, desde, nSems });
       });
 
-      reprEl.innerHTML = Object.entries(porEquipe).map(([eq, items]) => `
-        <div style="margin-bottom:12px">
-          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#6b7280;
-            text-transform:uppercase;margin-bottom:6px;padding:4px 0;
-            border-bottom:1px solid var(--border)">${eq}</div>
-          ${items.map(r => `
-            <div style="display:flex;align-items:center;gap:8px;padding:5px 0;
-              border-bottom:1px solid var(--border);font-size:11px">
-              <span style="font-weight:600;color:#374151;min-width:52px">${r.os}</span>
-              <span style="flex:1;color:#6b7280;overflow:hidden;text-overflow:ellipsis;
-                white-space:nowrap" title="${r.desc_servico||''}">${r.desc_servico||'—'}</span>
-              <span style="color:#9ca3af;font-size:10px;min-width:40px;text-align:right">
-                ${r.hh_previsto||0}h</span>
-              <span style="padding:2px 6px;border-radius:4px;font-size:9px;font-weight:600;
-                background:${r.status==='3 - Interrompida'?'#fef3c7':'#fee2e2'};
-                color:${r.status==='3 - Interrompida'?'#92400e':'#dc2626'}">
-                ${r.status}</span>
-            </div>`).join('')}
-        </div>`).join('');
+      if (cntEl) cntEl.textContent = naoEnc.length + ' serviço' + (naoEnc.length !== 1 ? 's' : '');
+
+      /* Equipes pendentes presentes na semana */
+      const eqsNaSem = [...new Set(progAtual.map(p => p.equipe).filter(Boolean))];
+      const pendNaSem = eqsNaSem.filter(eq => eqsPendentes.includes(eq));
+
+      let html = '';
+      if (pendNaSem.length) {
+        html += '<div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:11px;color:#92400e;display:flex;align-items:center;gap:8px">'
+              + '<i class="ti ti-alert-triangle"></i>'
+              + '<span>Equipes sem OS importada não contabilizadas: <strong>' + pendNaSem.join(', ') + '</strong></span>'
+              + '</div>';
+      }
+
+      const equipesFilt = Object.entries(porEquipe).filter(([eq]) => !eqsPendentes.includes(eq));
+
+      equipesFilt.forEach(function([eq, items]) {
+        html += '<div style="margin-bottom:14px">';
+        html += '<div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#6b7280;text-transform:uppercase;padding:4px 0;border-bottom:2px solid var(--border);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">';
+        html += '<span>' + eq + '</span>';
+        html += '<span style="color:#9ca3af;font-weight:400">' + items.length + ' serviço' + (items.length!==1?'s':'') + '</span>';
+        html += '</div>';
+
+        items.sort(function(a,b){ return b.nSems - a.nSems; }).forEach(function(r) {
+          var bgC   = r.nSems >= 3 ? '#fee2e2' : r.nSems === 2 ? '#fef3c7' : '#f3f4f6';
+          var txtC  = r.nSems >= 3 ? '#dc2626' : r.nSems === 2 ? '#92400e' : '#6b7280';
+          var badge = r.desde + (r.nSems > 1 ? ' (' + r.nSems + ' sem.)' : '');
+          html += '<div style="display:grid;grid-template-columns:56px 1fr auto auto;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px">';
+          html += '<span style="font-weight:700;color:#374151">' + r.os + '</span>';
+          html += '<span style="color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + r.desc + '">' + r.desc + '</span>';
+          html += '<span style="color:#9ca3af;font-size:10px;white-space:nowrap">' + r.hh + 'h</span>';
+          html += '<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;white-space:nowrap;background:' + bgC + ';color:' + txtC + '">' + badge + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      });
+
+      reprEl.innerHTML = html || '<div style="padding:8px 0;font-size:12px;color:#9ca3af;text-align:center">Nenhum serviço pendente nas equipes com OS importada</div>';
 
     } catch(e) {
       console.error('Reprogramadas:', e);
       reprEl.innerHTML = '<div style="padding:12px 0;font-size:12px;color:#dc2626">Erro ao carregar</div>';
-    }
-  },
-
-  /* ── Métricas auxiliares ── */
-  async _atualizarMetricasAux() {
-    try {
-      const db = getDB();
-
-      /* ── PRÉ-OS ABERTAS ──────────────────────────────
-         Contagem das Pré-Ordens com Situação "Aguardando"
-         Independe da semana selecionada — estado atual   */
-      const { count: abertas } = await db
-        .from('pre_ordens')
-        .select('*', { count: 'exact', head: true })
-        .eq('situacao', 'Aguardando');
-      const elP = document.getElementById('m-preos');
-      if (elP && abertas != null) elP.textContent = abertas;
-
-      /* ── TEMPO MÉDIO PRÉ-OS → OS ────────────────────
-         Para cada Pré-OS com OS vinculada:
-           tempo = data_geracao (OS) - data_comunicacao (Pré-OS)
-         Média de todos os registros da safra              */
-      const { data: preos } = await db
-        .from('pre_ordens')
-        .select('os, data_comunicacao')
-        .not('os', 'is', null)
-        .neq('os', '');
-
-      console.log('Pré-OS com OS:', preos ? preos.length : 0);
-      if (!preos || !preos.length) {
-        const elT = document.getElementById('m-tempo');
-        if (elT) elT.textContent = 'sem dados';
-        return;
-      }
-
-      const osNums = [...new Set(preos.map(p => p.os).filter(Boolean))];
-      const { data: ordens } = await db
-        .from('ordens_servico')
-        .select('os, data_geracao')
-        .in('os', osNums.slice(0, 500))
-        .not('data_geracao', 'is', null);
-
-      if (!ordens || !ordens.length) return;
-
-      const mapaGer = {};
-      ordens.forEach(o => { mapaGer[o.os] = o.data_geracao; });
-
-      const diffs = [];
-      preos.forEach(p => {
-        const dGer  = mapaGer[p.os];
-        const dCom  = p.data_comunicacao;
-        if (!dGer || !dCom) return;
-        const diff = (new Date(dGer) - new Date(dCom)) / 86400000;
-        if (diff >= 0 && diff < 365) diffs.push(diff);
-      });
-
-      console.log('Diffs calculados:', diffs.length, 'média:', diffs.length ? (diffs.reduce((a,b)=>a+b,0)/diffs.length).toFixed(1) : 0);
-      if (!diffs.length) {
-        const elT = document.getElementById('m-tempo');
-        if (elT) elT.textContent = 'sem dados';
-        return;
-      }
-      const media = diffs.reduce((a, b) => a + b, 0) / diffs.length;
-      const elT = document.getElementById('m-tempo');
-      if (elT) {
-        elT.textContent = media.toFixed(1) + ' dias';
-        elT.style.color = media <= 3 ? '#16a34a' : '#d97706';
-      }
-
-    } catch(e) {
-      console.error('Métricas aux erro:', e);
-      const elT = document.getElementById('m-tempo');
-      if (elT) elT.textContent = 'erro';
     }
   },
 
