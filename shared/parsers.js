@@ -142,6 +142,8 @@ function parseOS(rows) {
   const iSafra    = colIdx(hdr, ['Safra']);
   const iHhPrevS  = colIdx(hdr, ['Hh Prev. Serviço (Decimal)', 'Hh Prev. Servico']);
   const iHhRealS  = colIdx(hdr, ['Hh Real Serviço (Decimal)', 'Hh Real Servico']);
+  const iHhPrevOS = colIdx(hdr, ['Hh Prev. OS', 'Hh Prev OS']);
+  const iHhRealOS = colIdx(hdr, ['Hh Real OS', 'Hh Real OS']);
   const iStatusOS = colIdx(hdr, ['Status OS']);
   const iStatusS  = colIdx(hdr, ['Status Serviço', 'Status Servico']);
   const iCracha   = colIdx(hdr, ['Cracha', 'Crachá']);
@@ -182,6 +184,8 @@ function parseOS(rows) {
       desc_setor:        g(iDescSet, row).slice(0, 100) || null,
       tag:               g(iTag, row).slice(0, 50) || null,
       safra:             g(iSafra, row).slice(0, 10) || null,
+      hh_prev_os:        parseFloat(g(iHhPrevOS, row)) || null,
+      hh_real_os:        parseFloat(g(iHhRealOS, row)) || null,
       hh_prev_servico:   parseFloat(g(iHhPrevS, row)) || null,
       hh_real_servico:   parseFloat(g(iHhRealS, row)) || null,
       status_os:         g(iStatusOS, row).slice(0, 30) || null,
