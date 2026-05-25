@@ -216,27 +216,51 @@ window.Modulos.prog_semanal = {
         return;
       }
 
-      // Agrupar por semana → equipe → H-h
+      // 2. Detectar quais equipes estão na programação
+      const eqsNaProg = [...new Set(progData.map(r => r.equipe).filter(Boolean))];
+
+      // 3. Buscar equipes que têm OS no banco
+      const { data: osEqs } = await db
+        .from('ordens_servico')
+        .select('equipe')
+        .not('equipe', 'is', null);
+      const eqsComOS = new Set((osEqs || []).map(r => r.equipe).filter(Boolean));
+
+      // 4. Detectar equipes pendentes (na prog mas sem OS importada)
+      const eqsPendentes = eqsNaProg.filter(eq => !eqsComOS.has(eq));
+      const eqsAtivas    = eqsNaProg.filter(eq =>  eqsComOS.has(eq));
+
+      if (eqsPendentes.length) {
+        showBanner(
+          'Pendente importação das Ordens de Serviço das equipes: ' +
+          eqsPendentes.join(', ') +
+          '. Aderência não calculada para essas equipes.',
+          true
+        );
+      } else {
+        showBanner('', false);
+      }
+
+      // 5. Agrupar H-h previsto por semana/equipe
       const agrupado = {};
       const semInfos = {};
       progData.forEach(r => {
-        const key = `${r.semana}/${r.ano}`;
+        const key = r.semana + '/' + r.ano;
         if (!agrupado[key]) agrupado[key] = {};
-        if (!semInfos[key])  semInfos[key] = {
+        if (!semInfos[key]) semInfos[key] = {
           semana: r.semana, ano: r.ano,
           dataIni: r.data_inicio_semana, dataFim: r.data_fim_semana,
         };
         const eq = r.equipe;
         if (eq) {
-          if (!agrupado[key][eq]) agrupado[key][eq] = { prev: 0, real: 0 };
+          if (!agrupado[key][eq]) agrupado[key][eq] = { prev: 0, real: 0, temOS: eqsComOS.has(eq) };
           agrupado[key][eq].prev += parseFloat(r.hh_previsto) || 0;
         }
       });
 
-      // 2. Buscar apontamentos (H-h real por semana/equipe)
-      // Para cada semana, filtramos apontamentos pelo período
+      // 6. Buscar apontamentos por período e cruzar com equipes
       for (const key of Object.keys(semInfos)) {
-        const { dataIni, dataFim, semana, ano } = semInfos[key];
+        const { dataIni, dataFim } = semInfos[key];
         if (!dataIni || !dataFim) continue;
 
         const { data: aptData } = await db
@@ -247,26 +271,25 @@ window.Modulos.prog_semanal = {
 
         if (!aptData || !aptData.length) continue;
 
-        // Cruzar apontamentos com OS para saber a equipe
         const osNums = [...new Set(aptData.map(a => a.os))];
-        const { data: osEqs } = await db
+        const { data: osEqData } = await db
           .from('ordens_servico')
           .select('os, equipe')
           .in('os', osNums.slice(0, 500));
 
         const mapaEq = {};
-        (osEqs || []).forEach(o => { mapaEq[o.os] = o.equipe; });
+        (osEqData || []).forEach(o => { mapaEq[o.os] = o.equipe; });
 
         aptData.forEach(apt => {
           const eq = mapaEq[apt.os];
           if (!eq) return;
           if (!agrupado[key]) agrupado[key] = {};
-          if (!agrupado[key][eq]) agrupado[key][eq] = { prev: 0, real: 0 };
+          if (!agrupado[key][eq]) agrupado[key][eq] = { prev: 0, real: 0, temOS: eqsComOS.has(eq) };
           agrupado[key][eq].real += parseFloat(apt.hh_total) || 0;
         });
       }
 
-      // Arredondar valores
+      // Arredondar
       Object.values(agrupado).forEach(eqs => {
         Object.values(eqs).forEach(v => {
           v.prev = Math.round(v.prev * 10) / 10;
@@ -274,19 +297,19 @@ window.Modulos.prog_semanal = {
         });
       });
 
-      this._state.dadosSem  = agrupado;
-      this._state.semanas   = Object.values(semInfos).sort((a, b) => a.semana - b.semana);
-      this._state.activeEqs = [...MAN360_CONFIG.equipes];
+      this._state.dadosSem    = agrupado;
+      this._state.semanas     = Object.values(semInfos).sort((a, b) => a.semana - b.semana);
+      this._state.eqsPendentes = eqsPendentes;
+      this._state.eqsAtivas   = eqsAtivas;
+      this._state.activeEqs   = [...MAN360_CONFIG.equipes];
 
-      // Selecionar semana mais recente por padrão
       const ultima = this._state.semanas[this._state.semanas.length - 1];
-      this._state.activeSems = ultima ? [`${ultima.semana}/${ultima.ano}`] : [];
+      this._state.activeSems = ultima ? [ultima.semana + '/' + ultima.ano] : [];
 
       this._renderizarDropdownSemanas();
       this._inicializarCharts();
       this._atualizarMetricasAux();
 
-      showBanner('', false);
     } catch (err) {
       console.error(err);
       showBanner('Erro ao carregar: ' + err.message, true);
@@ -416,11 +439,21 @@ window.Modulos.prog_semanal = {
         return sum + ((dadosSem[key] && dadosSem[key][eq]) ? dadosSem[key][eq].real : 0);
       }, 0);
     });
-    const adr = activeEqs.map((eq, i) => prev[i] ? Math.round(real[i] / prev[i] * 100) : 0);
+    const eqsPend = this._state.eqsPendentes || [];
+    // Aderência: só calcular para equipes com OS importada
+    const adr = activeEqs.map((eq, i) => {
+      if (eqsPend.includes(eq)) return -1; // -1 = pendente, sem dado
+      return prev[i] ? Math.round(real[i] / prev[i] * 100) : 0;
+    });
 
+    // Aderência global: ignorar equipes pendentes
+    let totalPrevAdh = 0, totalRealAdh = 0;
+    activeEqs.forEach((eq, i) => {
+      if (!eqsPend.includes(eq)) { totalPrevAdh += prev[i]; totalRealAdh += real[i]; }
+    });
     const totalPrev = prev.reduce((a, b) => a + b, 0);
     const totalReal = real.reduce((a, b) => a + b, 0);
-    const adrGlobal = totalPrev ? Math.round(totalReal / totalPrev * 100) : 0;
+    const adrGlobal = totalPrevAdh ? Math.round(totalRealAdh / totalPrevAdh * 100) : 0;
 
     // Aderência global semana a semana
     const semLabels = [], semVals = [];
@@ -451,8 +484,8 @@ window.Modulos.prog_semanal = {
 
     // C2
     charts.c2.data.labels = activeEqs;
-    charts.c2.data.datasets[0].data = adr;
-    charts.c2.data.datasets[0].backgroundColor = adr.map(v => v >= 80 ? GREEN : (v > 0 ? RED : '#9ca3af'));
+    charts.c2.data.datasets[0].data = adr.map(v => v === -1 ? 0 : v);
+    charts.c2.data.datasets[0].backgroundColor = adr.map(v => v === -1 ? '#d1d5db' : v >= 80 ? GREEN : (v > 0 ? RED : '#9ca3af'));
     charts.c2.update('none');
 
     // C3
