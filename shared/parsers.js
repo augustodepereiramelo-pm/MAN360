@@ -164,7 +164,8 @@ function parseOS(rows) {
     const codRaw = g(iCod, row);
     // MCU: cod_servico = null (nunca tem código válido além de '1' genérico)
     // Mas na OS, MCU também tem cod=1 — a distinção é pelo tipo
-    const cod = (tipo === 'MCU') ? null : (codRaw ? String(parseInt(codRaw) || codRaw) : null);
+    // MCU: cod_servico='0' (nunca tem servico filho). Programavel: '1','2'...
+    const cod = (tipo === 'MCU') ? '0' : (codRaw ? String(parseInt(codRaw) || codRaw) : '0');
 
     registros.push({
       os,
@@ -291,15 +292,18 @@ function _parseProgAba(rows, ctxIn, tabelaOS) {
   let dataIni      = ctxIn.dataIni;
   let dataFim      = ctxIn.dataFim;
 
-  // Cabeçalho: extrair semana e período das primeiras 5 linhas
-  const headerText = rows.slice(0, 5).map(r => r.map(c => String(c || '')).join(' ')).join(' ');
+  // Cabeçalho: extrair semana e período das primeiras 10 linhas
+  // Normalizar acentos para garantir que regex funcionem (Início -> Inicio, etc)
+  const headerRaw  = rows.slice(0, 10).map(r => r.map(c => String(c || '')).join(' ')).join(' ');
+  const headerText = headerRaw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // "SEM 8 18/05-24/05/26" ou "SEM 8 18/05/26-24/05/26"
+  // "SEM 9 25/05-31/05/26" ou "SEM 8 18/05-24/05/26"
   const mSem = headerText.match(/SEM\s*(\d+)\s+(\d{2})\/(\d{2})-(\d{2})\/(\d{2})\/(\d{2,4})/i)
             || headerText.match(/SEM\s*(\d+)/i);
   if (mSem && mSem[1]) semana = parseInt(mSem[1]);
 
-  const mIni = headerText.match(/In[ií]cio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
+  // "Inicio : 25/05/2026" ou "Inicio :  25/05/2026" (com espacos extras)
+  const mIni = headerText.match(/Inicio\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
   const mFim = headerText.match(/Fim\s*:\s*(\d{2}\/\d{2}\/\d{4})/i);
   if (mIni) { dataIni = normData(mIni[1]); ano = parseInt(mIni[1].split('/')[2]); }
   if (mFim)   dataFim = normData(mFim[1]);
@@ -375,7 +379,7 @@ function _parseProgAba(rows, ctxIn, tabelaOS) {
       data_fim_semana:    dataFim,
       equipe,
       os,
-      cod_servico:     codServico,
+      cod_servico:     codServico || '0',
       desc_servico:    descBruta.slice(0, 500) || null,
       mis:             mis ? mis.slice(0, 20) : null,
       hh_previsto:     hh,
@@ -431,9 +435,8 @@ function parseApontamento(rows) {
       const descRaw    = cells[1] || '';
       const { cod, desc } = extrairCodServico(descRaw);
 
-      // MCU: sem numeral na descrição → cod = null
-      // Programável: tem numeral → cod = '1', '2'...
-      const codFinal = (tipoAtual === 'MCU') ? null : cod;
+      // MCU: sem numeral → cod = '0'. Programável: cod = '1','2'...
+      const codFinal = (tipoAtual === 'MCU') ? '0' : (cod || '0');
 
       registros.push({
         os,
