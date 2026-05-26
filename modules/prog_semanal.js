@@ -294,13 +294,22 @@ window.Modulos.prog_semanal = {
           .select('os,cod_servico,status_os,hh_prev_servico,hh_real_servico')
           .in('os', osNums.slice(0,500));
 
-        const mapaOS = {};
-        (osInfo||[]).forEach(o => { mapaOS[o.os+'|'+(o.cod_servico||'?')] = o; });
+        /* Mapa duplo: por os+cod E só por os (para cod='?') */
+        const mapaOS = {}, mapaOSsimples = {};
+        (osInfo||[]).forEach(o => {
+          mapaOS[o.os+'|'+(o.cod_servico||'?')] = o;
+          /* Para OS com cod='?': guardar a OS mais relevante (encerrada preferida) */
+          if (!mapaOSsimples[o.os] || o.status_os === '4 - Encerrada')
+            mapaOSsimples[o.os] = o;
+        });
 
         progSem.forEach(p => {
           const eq  = p.equipe;
-          const inf = mapaOS[p.os+'|'+(p.cod_servico||'?')];
-          if (!eq || !ag[k] || !ag[k][eq] || !inf) return;
+          if (!eq || !ag[k] || !ag[k][eq]) return;
+          /* Tentar match exato primeiro, depois só por OS */
+          const inf = mapaOS[p.os+'|'+(p.cod_servico||'?')]
+                   || (p.cod_servico === '?' ? mapaOSsimples[p.os] : null);
+          if (!inf) return;
           if (inf.status_os === '4 - Encerrada') {
             const hhProg = parseFloat(p.hh_previsto) || 0;
             ag[k][eq].prevEnc    += hhProg;
@@ -846,11 +855,15 @@ window.Modulos.prog_semanal = {
         }
       }
 
-      /* Eficiência */
-      const hhPE = sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhPrevEnc:0),0);
-      const hhRE = sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhRealEnc:0),0);
+      /* Eficiência — usa _efic (mesma fonte do C4) agrupado por modalidade da equipe */
+      const modal = eq.replace(/\d+$/, '');
+      let hhPE = 0, hhRE = 0;
+      sems.forEach(k => {
+        const efic = ds[k] && ds[k]['_efic'] && ds[k]['_efic'][modal];
+        if (efic) { hhPE += efic.prev || 0; hhRE += efic.real || 0; }
+      });
       if (hhPE > 0) {
-        const ef = hhPE > 0 ? Math.round((1 - Math.abs(hhRE-hhPE)/hhPE)*100) : 0;
+        const ef = Math.round((1 - Math.abs(hhRE - hhPE) / hhPE) * 100);
         if (ef < META && a >= META)
           alertas.push({c:AM,i:'ti-chart-bar',t:'<strong>'+eq+'</strong>: aderência OK mas eficiência em <strong>'+ef+'%</strong> — H-h realizado abaixo do previsto nas OS encerradas'});
         if (ef > 130)
