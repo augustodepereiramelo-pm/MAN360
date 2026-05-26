@@ -15,7 +15,71 @@ async function importarOS(rows) {
   const { count, error } = await dbUpsert('ordens_servico', regs, 'os,cod_servico');
   if (error) return { ok: false, msg: 'Erro: ' + error.message };
 
+  /* Após importar OS, tentar resolver cod_servico='?' na programação */
+  await resolverProgPendentes();
+
   return { ok: true, msg: 'OK . ' + regs.length + ' OS (' + mcu.length + ' MCU + ' + prog.length + ' prog.)' };
+}
+
+/* ── Resolver cod_servico pendentes na programação semanal ── */
+async function resolverProgPendentes() {
+  try {
+    const db = getDB();
+
+    /* Buscar linhas com cod_servico='?' */
+    const { data: pendentes } = await db
+      .from('programacao_semanal')
+      .select('id, os, desc_servico, equipe, semana, ano')
+      .eq('cod_servico', '?');
+
+    if (!pendentes || !pendentes.length) return;
+
+    /* Buscar OS do banco para resolver */
+    const osNums = [...new Set(pendentes.map(p => p.os))];
+    const { data: osData } = await db
+      .from('ordens_servico')
+      .select('os, cod_servico, desc_servico')
+      .in('os', osNums.slice(0, 500))
+      .neq('tipo_atividade', 'MCU');
+
+    if (!osData || !osData.length) return;
+
+    /* Montar mapa os → [{cod, desc}] */
+    const tabelaOS = {};
+    osData.forEach(r => {
+      if (!tabelaOS[r.os]) tabelaOS[r.os] = [];
+      tabelaOS[r.os].push({ cod: r.cod_servico, desc: r.desc_servico || '' });
+    });
+
+    /* Para cada pendente, tentar resolver */
+    let resolvidos = 0;
+    for (const p of pendentes) {
+      const candidatos = tabelaOS[p.os];
+      if (!candidatos || !candidatos.length) continue;
+
+      /* Tentar match por descrição */
+      const descNorm = Parsers.normStr(p.desc_servico || '').slice(0, 15);
+      const match = candidatos.find(c =>
+        Parsers.normStr(c.desc).slice(0, 15) === descNorm
+      ) || candidatos[0];
+
+      if (!match || !match.cod) continue;
+
+      /* Atualizar o registro */
+      await db
+        .from('programacao_semanal')
+        .update({ cod_servico: match.cod })
+        .eq('id', p.id);
+
+      resolvidos++;
+    }
+
+    if (resolvidos > 0)
+      console.log('resolverProgPendentes: ' + resolvidos + ' de ' + pendentes.length + ' resolvidos');
+
+  } catch(e) {
+    console.warn('resolverProgPendentes:', e.message);
+  }
 }
 
 /* ── Pré-OS ───────────────────────────────────────────── */
