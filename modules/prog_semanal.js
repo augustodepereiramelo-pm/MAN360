@@ -119,6 +119,85 @@ window.Modulos.prog_semanal = {
   </div>
 </div>
 
+<!-- LISTA DESTRINCHADA -->
+<div id="lista-card" style="margin-bottom:12px">
+  <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);">
+    <!-- Cabeçalho sempre visível -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer"
+         onclick="Modulos.prog_semanal._toggleLista()">
+      <div style="display:flex;align-items:center;gap:10px">
+        <i class="ti ti-list-search" style="color:var(--yellow);font-size:16px"></i>
+        <span style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#374151">
+          DETALHAMENTO DE OS
+        </span>
+        <span id="lista-count" style="font-size:10px;color:#9ca3af"></span>
+      </div>
+      <i class="ti ti-chevron-down" id="lista-chevron"
+         style="font-size:16px;color:#9ca3af;transition:transform .2s"></i>
+    </div>
+    <!-- Corpo retrátil -->
+    <div id="lista-body" style="display:none;padding:0 16px 16px">
+      <!-- Filtros -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding-top:4px;border-top:1px solid var(--border)">
+        <div class="dd-wrap">
+          <button class="dd-btn" onclick="Modulos.prog_semanal._dd('dd-lista-modal')" style="height:28px">
+            <i class="ti ti-category" style="font-size:13px"></i>
+            <span class="dd-label" id="lista-modal-label" style="font-size:10px">Modalidade</span>
+            <i class="ti ti-chevron-down dd-arrow"></i>
+          </button>
+          <div class="dd-panel" id="dd-lista-modal">
+            <div id="lista-modal-items"></div>
+          </div>
+        </div>
+        <div class="dd-wrap">
+          <button class="dd-btn" onclick="Modulos.prog_semanal._dd('dd-lista-tipo')" style="height:28px">
+            <i class="ti ti-filter" style="font-size:13px"></i>
+            <span class="dd-label" id="lista-tipo-label" style="font-size:10px">Tipo</span>
+            <i class="ti ti-chevron-down dd-arrow"></i>
+          </button>
+          <div class="dd-panel" id="dd-lista-tipo">
+            <label class="dd-item" style="font-size:11px">
+              <input type="radio" name="lista-tipo" value="mcu" onchange="Modulos.prog_semanal._filtrarLista()"> MCU
+            </label>
+            <label class="dd-item" style="font-size:11px">
+              <input type="radio" name="lista-tipo" value="dentro" onchange="Modulos.prog_semanal._filtrarLista()"> Dentro da Prog.
+            </label>
+            <label class="dd-item" style="font-size:11px">
+              <input type="radio" name="lista-tipo" value="fora" onchange="Modulos.prog_semanal._filtrarLista()"> Fora da Prog.
+            </label>
+            <label class="dd-item" style="font-size:11px">
+              <input type="radio" name="lista-tipo" value="naoexec" onchange="Modulos.prog_semanal._filtrarLista()"> Não Executadas
+            </label>
+          </div>
+        </div>
+        <button onclick="Modulos.prog_semanal._filtrarLista()"
+          style="height:28px;padding:0 12px;background:var(--yellow);border:none;border-radius:var(--radius-sm);
+          font-family:var(--font);font-size:10px;font-weight:700;cursor:pointer">
+          <i class="ti ti-search"></i> Filtrar
+        </button>
+      </div>
+      <!-- Botão retrair topo -->
+      <div id="lista-retrair-top" style="display:none;text-align:center;margin-bottom:8px">
+        <button onclick="Modulos.prog_semanal._toggleLista()"
+          style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 14px;
+          font-size:10px;color:#9ca3af;cursor:pointer;font-family:var(--font)">
+          ▲ recolher
+        </button>
+      </div>
+      <!-- Tabela -->
+      <div id="lista-tabela"></div>
+      <!-- Botão retrair fundo -->
+      <div id="lista-retrair-bot" style="display:none;text-align:center;margin-top:8px">
+        <button onclick="Modulos.prog_semanal._toggleLista()"
+          style="background:none;border:1px solid var(--border);border-radius:20px;padding:3px 14px;
+          font-size:10px;color:#9ca3af;cursor:pointer;font-family:var(--font)">
+          ▲ recolher
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="import-section"><div class="card">
   <div class="card-title"><i class="ti ti-upload" style="color:var(--yellow)"></i> IMPORTAR DADOS</div>
   <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start">
@@ -301,6 +380,7 @@ window.Modulos.prog_semanal = {
       this._initCharts();
       this._preosAbertas();
       this._tempoMedio();
+      this._buildListaModalDD();
 
     } catch(err) {
       console.error(err);
@@ -777,6 +857,36 @@ window.Modulos.prog_semanal = {
 
     });
 
+    /* Interrompidas e canceladas na programação */
+    (async () => {
+      try {
+        const db2 = getDB();
+        const semKey = sems.slice().sort().pop();
+        if (!semKey) return;
+        const [sNum, aNum] = semKey.split('/').map(Number);
+        const { data: prog } = await db2.from('programacao_semanal')
+          .select('os, desc_servico').eq('semana',sNum).eq('ano',aNum);
+        if (!prog || !prog.length) return;
+        const osNums = [...new Set(prog.map(p=>p.os))];
+        const { data: osInt } = await db2.from('ordens_servico')
+          .select('os, status_os')
+          .in('os', osNums.slice(0,500))
+          .in('status_os', ['3 - Interrompida','5 - Cancelada']);
+        if (!osInt || !osInt.length) return;
+        const alertasEl2 = document.getElementById('alertas-body');
+        if (!alertasEl2) return;
+        osInt.forEach(o => {
+          const p    = prog.find(x => x.os === o.os);
+          const desc = p ? (p.desc_servico||'').slice(0, 40) : '';
+          const cor  = o.status_os === '3 - Interrompida' ? '#d97706' : '#dc2626';
+          const ico  = o.status_os === '3 - Interrompida' ? 'ti-player-pause' : 'ti-ban';
+          alertasEl2.innerHTML += '<div style="display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px">'
+            + '<i class="ti '+ico+'" style="font-size:16px;flex-shrink:0;margin-top:1px;color:'+cor+'"></i>'
+            + '<div>OS <strong>'+o.os+'</strong>'+(desc?' — '+desc.trim()+'…':'')+' — <strong>'+o.status_os+'</strong> (estava na Sem '+sNum+')</div></div>';
+        });
+      } catch(e) { console.warn('Alertas int/canc:', e); }
+    })();
+
     if (!alertas.length) {
       el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:#16a34a;font-size:12px"><i class="ti ti-circle-check" style="font-size:18px"></i><span>Nenhum ponto de atenção para o período selecionado</span></div>';
       return;
@@ -904,5 +1014,174 @@ window.Modulos.prog_semanal = {
     row.innerHTML = '<i class="ti ti-file-spreadsheet" style="color:'+(ok?'var(--green)':'#dc2626')+'"></i><span class="hist-name" title="'+nome+'">'+nome+'</span><span class="hist-date">hoje '+hora+'</span><span class="hist-badge '+(ok?'hb-ok':'hb-err')+'">'+badge+'</span>';
     list.insertAdjacentElement('afterbegin', row);
   },
+  /* ══════════════════════════════════════════
+     LISTA DESTRINCHADA
+  ══════════════════════════════════════════ */
+  _toggleLista() {
+    const body    = document.getElementById('lista-body');
+    const chevron = document.getElementById('lista-chevron');
+    const aberto  = body.style.display !== 'none';
+    body.style.display = aberto ? 'none' : 'block';
+    if (chevron) chevron.style.transform = aberto ? '' : 'rotate(180deg)';
+  },
+
+  _buildListaModalDD() {
+    const box = document.getElementById('lista-modal-items');
+    if (!box) return;
+    box.innerHTML = '';
+    // Coletar modalidades dos dados
+    const { dadosSem:ds, activeSems:sems } = this._s;
+    const mods = new Set();
+    sems.forEach(k => {
+      if (ds[k] && ds[k]['_dist']) Object.keys(ds[k]['_dist']).forEach(m => mods.add(m));
+      if (ds[k] && ds[k]['_efic']) Object.keys(ds[k]['_efic']).forEach(m => mods.add(m));
+    });
+    [...mods].sort().forEach(m => {
+      const lbl = document.createElement('label');
+      lbl.className = 'dd-item';
+      lbl.style.fontSize = '11px';
+      lbl.innerHTML = '<input type="radio" name="lista-modal" value="'+m+'" onchange="Modulos.prog_semanal._filtrarLista()"> '+m;
+      box.appendChild(lbl);
+    });
+  },
+
+  async _filtrarLista() {
+    const tabelaEl = document.getElementById('lista-tabela');
+    const countEl  = document.getElementById('lista-count');
+    const topEl    = document.getElementById('lista-retrair-top');
+    const botEl    = document.getElementById('lista-retrair-bot');
+    if (!tabelaEl) return;
+
+    const modalEl = document.querySelector('[name=lista-modal]:checked');
+    const tipoEl  = document.querySelector('[name=lista-tipo]:checked');
+    if (!modalEl || !tipoEl) {
+      tabelaEl.innerHTML = '<div style="padding:12px;font-size:12px;color:#9ca3af;text-align:center">Selecione modalidade e tipo</div>';
+      return;
+    }
+    const modal = modalEl.value;
+    const tipo  = tipoEl.value;
+
+    document.getElementById('lista-modal-label').textContent = modal;
+    document.getElementById('lista-tipo-label').textContent  = tipoEl.parentElement.textContent.trim();
+    document.getElementById('dd-lista-modal').classList.remove('show');
+    document.getElementById('dd-lista-tipo').classList.remove('show');
+
+    tabelaEl.innerHTML = '<div style="padding:12px;font-size:12px;color:#9ca3af;text-align:center">Carregando...</div>';
+
+    try {
+      const db   = getDB();
+      const { activeSems:sems, semanas } = this._s;
+      if (!sems.length) { tabelaEl.innerHTML = '<div style="padding:12px;font-size:12px;color:#9ca3af;text-align:center">Selecione uma semana</div>'; return; }
+
+      // Pegar período da semana selecionada
+      const semKey = sems[sems.length-1];
+      const [semNum, anoNum] = semKey.split('/').map(Number);
+      const semInfo = semanas.find(s => s.semana===semNum && s.ano===anoNum);
+      if (!semInfo || !semInfo.dataIni || !semInfo.dataFim) {
+        tabelaEl.innerHTML = '<div style="padding:12px;font-size:12px;color:#9ca3af;text-align:center">Sem datas da semana</div>';
+        return;
+      }
+      const { dataIni, dataFim } = semInfo;
+
+      let rows = [];
+
+      if (tipo === 'naoexec') {
+        // Não executadas: na prog mas não encerradas
+        const { data: prog } = await db.from('programacao_semanal')
+          .select('os, cod_servico, desc_servico, hh_previsto, equipe')
+          .eq('semana', semNum).eq('ano', anoNum);
+
+        if (!prog || !prog.length) { tabelaEl.innerHTML = '<div style="padding:12px;font-size:12px;color:#9ca3af;text-align:center">Sem dados</div>'; return; }
+
+        const osNums = [...new Set(prog.map(p=>p.os))];
+        const { data: osData } = await db.from('ordens_servico')
+          .select('os, cod_servico, status_os, modalidade')
+          .in('os', osNums.slice(0,500));
+
+        const mapaOS = {};
+        (osData||[]).forEach(o => { mapaOS[o.os+'|'+(o.cod_servico||'?')] = o; });
+
+        prog.forEach(p => {
+          const inf = mapaOS[p.os+'|'+(p.cod_servico||'?')];
+          if (!inf) return;
+          if ((inf.modalidade||'OUTROS').toUpperCase().trim() !== modal) return;
+          if (inf.status_os === '4 - Encerrada') return;
+          rows.push({ os: p.os, desc: p.desc_servico||'—', hhReal: 0, hhPrev: parseFloat(p.hh_previsto)||0, tipo: 'naoexec' });
+        });
+
+      } else {
+        // MCU / Dentro / Fora: OS encerradas no período
+        const { data: osEnc } = await db.from('ordens_servico')
+          .select('os, cod_servico, tipo_atividade, modalidade, desc_os, desc_servico, hh_real_os, hh_real_servico, hh_prev_servico')
+          .eq('status_os', '4 - Encerrada')
+          .gte('data_encerramento', dataIni)
+          .lte('data_encerramento', dataFim);
+
+        // Chaves da programação desta semana
+        const { data: progSem } = await db.from('programacao_semanal')
+          .select('os').eq('semana', semNum).eq('ano', anoNum);
+        const chavProg = new Set((progSem||[]).map(p => p.os));
+
+        (osEnc||[]).forEach(o => {
+          if ((o.modalidade||'OUTROS').toUpperCase().trim() !== modal) return;
+          const isMCU = o.tipo_atividade === 'MCU';
+          const isDentro = !isMCU && chavProg.has(o.os);
+          const isFora   = !isMCU && !chavProg.has(o.os);
+          if (tipo === 'mcu'    && !isMCU)    return;
+          if (tipo === 'dentro' && !isDentro) return;
+          if (tipo === 'fora'   && !isFora)   return;
+          const hhReal = isMCU ? (parseFloat(o.hh_real_os)||0) : (parseFloat(o.hh_real_servico)||0);
+          const hhPrev = parseFloat(o.hh_prev_servico)||0;
+          const desc   = isMCU ? (o.desc_os||'—') : (o.desc_servico||'—');
+          rows.push({ os: o.os, desc, hhReal, hhPrev, tipo });
+        });
+      }
+
+      // Ordenar por Hh realizado decrescente
+      rows.sort((a,b) => b.hhReal - a.hhReal);
+
+      if (countEl) countEl.textContent = '(' + rows.length + ' OS)';
+
+      if (!rows.length) {
+        tabelaEl.innerHTML = '<div style="padding:12px;font-size:12px;color:#9ca3af;text-align:center">Nenhuma OS encontrada</div>';
+        if (topEl) topEl.style.display = 'none';
+        if (botEl) botEl.style.display = 'none';
+        return;
+      }
+
+      // Montar tabela
+      const G = '#16a34a', R = '#dc2626';
+      let html = '<table style="width:100%;border-collapse:collapse;font-size:11px">';
+      html += '<tr style="border-bottom:2px solid var(--border)">';
+      html += '<th style="text-align:left;padding:5px 6px;color:#6b7280;font-size:9px;font-weight:700;letter-spacing:.08em;width:52px">OS</th>';
+      html += '<th style="text-align:left;padding:5px 6px;color:#6b7280;font-size:9px;font-weight:700;letter-spacing:.08em">DESCRIÇÃO</th>';
+      html += '<th style="text-align:right;padding:5px 6px;color:#6b7280;font-size:9px;font-weight:700;letter-spacing:.08em;white-space:nowrap">Hh Real</th>';
+      html += '<th style="text-align:right;padding:5px 6px;color:#6b7280;font-size:9px;font-weight:700;letter-spacing:.08em;white-space:nowrap">%Hh</th>';
+      html += '</tr>';
+
+      rows.forEach((r, i) => {
+        const pct = tipo === 'mcu' ? null : (r.hhPrev > 0 ? Math.round(r.hhReal/r.hhPrev*100) : (r.hhReal > 0 ? null : 0));
+        const pctColor = pct === null ? '#9ca3af' : pct >= 75 ? G : R;
+        const pctTxt   = pct === null ? '—' : pct + '%';
+        const descCurta = r.desc.length > 35 ? r.desc.slice(0,34)+'…' : r.desc;
+        const bg = i % 2 === 0 ? '' : 'background:#f9fafb';
+        html += '<tr style="border-bottom:1px solid var(--border);'+bg+'">';
+        html += '<td style="padding:6px 6px;font-weight:700;color:#374151">'+r.os+'</td>';
+        html += '<td style="padding:6px 6px;color:#6b7280;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.desc+'">'+descCurta+'</td>';
+        html += '<td style="padding:6px 6px;text-align:right;color:#374151;white-space:nowrap">'+(r.hhReal||'0')+'h</td>';
+        html += '<td style="padding:6px 6px;text-align:right;font-weight:700;color:'+pctColor+';white-space:nowrap">'+pctTxt+'</td>';
+        html += '</tr>';
+      });
+      html += '</table>';
+      tabelaEl.innerHTML = html;
+      if (topEl) topEl.style.display = rows.length > 8 ? 'block' : 'none';
+      if (botEl) botEl.style.display = rows.length > 8 ? 'block' : 'none';
+
+    } catch(e) {
+      console.error('Lista:', e);
+      tabelaEl.innerHTML = '<div style="padding:12px;font-size:12px;color:#dc2626">Erro: '+e.message+'</div>';
+    }
+  },
+
   exportar() { showToast('Exportação PDF em desenvolvimento','info'); },
 };
