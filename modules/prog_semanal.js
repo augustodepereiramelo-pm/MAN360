@@ -654,16 +654,31 @@ window.Modulos.prog_semanal = {
     ch.c3.data.datasets[0].backgroundColor = semVals.map(v=>v>=META?G:v>0?R:'#9ca3af');
     ch.c3.update('none');
 
-    /* C4 — eficiência por supervisão (mesma ordem do C2) */
-    const hhPE = c2Labels.map(eq=>sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhPrevEnc:0),0));
-    const hhRE = c2Labels.map(eq=>sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhRealEnc:0),0));
-    ch.c4.data.labels = c2Labels;
-    ch.c4.data.datasets[0].data = hhPE.map(v=>Math.round(v*10)/10);
-    ch.c4.data.datasets[1].data = hhRE.map(v=>Math.round(v*10)/10);
-    ch.c4.data.datasets[1].backgroundColor = hhRE.map((r,i)=>{
-      if(!hhPE[i]) return '#9ca3af';
-      const ef = (1 - Math.abs(r-hhPE[i])/hhPE[i])*100;
-      return ef>=META?G:r>0?R:'#9ca3af';
+    /* C4 — eficiência por MODALIDADE (apenas programáveis, MCU excluído)
+       Agrupa: MEC1→MEC, CAL1+CAL2+CAL3→CAL, CIV1→CIV, ELE1→ELE etc. */
+    const modalEfic = {};
+    eqs.forEach(eq => {
+      if (eqsPend.includes(eq)) return;
+      const modal = eq.replace(/\d+$/, ''); // MEC1→MEC, CAL2→CAL
+      if (!modalEfic[modal]) modalEfic[modal] = { prev: 0, real: 0 };
+      sems.forEach(k => {
+        if (ds[k] && ds[k][eq]) {
+          modalEfic[modal].prev += ds[k][eq].hhPrevEnc || 0;
+          modalEfic[modal].real += ds[k][eq].hhRealEnc || 0;
+        }
+      });
+    });
+    // Filtrar modalidades sem dados
+    const c4Modals = Object.keys(modalEfic).filter(m => modalEfic[m].prev > 0).sort();
+    const hhPE = c4Modals.map(m => Math.round(modalEfic[m].prev * 10) / 10);
+    const hhRE = c4Modals.map(m => Math.round(modalEfic[m].real * 10) / 10);
+    ch.c4.data.labels = c4Modals;
+    ch.c4.data.datasets[0].data = hhPE;
+    ch.c4.data.datasets[1].data = hhRE;
+    ch.c4.data.datasets[1].backgroundColor = hhRE.map((r,i) => {
+      if (!hhPE[i]) return '#9ca3af';
+      const ef = (1 - Math.abs(r - hhPE[i]) / hhPE[i]) * 100;
+      return ef >= META ? G : r > 0 ? R : '#9ca3af';
     });
     ch.c4.update('none');
 
