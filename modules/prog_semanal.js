@@ -265,11 +265,12 @@ window.Modulos.prog_semanal = {
           }
         });
 
-        /* Arredondar */
-        Object.values(ag[k]).forEach(v => {
-          if (typeof v === 'object' && v !== null && !v.mcu && !v.dentro && !v.fora) {
-            v.prev     = Math.round((v.prev||0)*10)/10;
-            v.prevEnc  = Math.round((v.prevEnc||0)*10)/10;
+        /* Arredondar — só equipes, não _dist */
+        Object.entries(ag[k]).forEach(([key, v]) => {
+          if (key === '_dist') return;
+          if (typeof v === 'object' && v !== null) {
+            v.prev      = Math.round((v.prev||0)*10)/10;
+            v.prevEnc   = Math.round((v.prevEnc||0)*10)/10;
             v.hhPrevEnc = Math.round((v.hhPrevEnc||0)*10)/10;
             v.hhRealEnc = Math.round((v.hhRealEnc||0)*10)/10;
           }
@@ -420,56 +421,123 @@ window.Modulos.prog_semanal = {
       ['Confiabilidade', ['ISP1','ISP2']],
     ];
 
+    /* Plugin para labels acima das barras */
+    const labelPlugin = (fmtFn) => ({
+      id: 'barLabel_'+Math.random(),
+      afterDraw(chart) {
+        const {ctx} = chart;
+        chart.data.datasets.forEach((ds, di) => {
+          const meta = chart.getDatasetMeta(di);
+          if (meta.hidden) return;
+          meta.data.forEach((bar, i) => {
+            const val = ds.data[i];
+            if (!val) return;
+            const lbl = fmtFn(val, ds, i, chart);
+            if (!lbl) return;
+            ctx.save();
+            ctx.font = 'bold 10px Sora,sans-serif';
+            ctx.fillStyle = '#374151';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(lbl, bar.x, bar.y - 2);
+            ctx.restore();
+          });
+        });
+      }
+    });
+
+    const fmtHh  = v => v ? v+'h' : null;
+    const fmtPct = v => v ? v+'%' : null;
+
+    /* Plugin eficiência — só no dataset 1 (Realizado) do C4 */
+    const eficPlugin = {
+      id: 'eficPlugin',
+      afterDraw(chart) {
+        const {ctx} = chart;
+        const prevDs = chart.data.datasets[0];
+        const realDs = chart.data.datasets[1];
+        if (!prevDs || !realDs) return;
+        const meta = chart.getDatasetMeta(1);
+        meta.data.forEach((bar, i) => {
+          const prev = prevDs.data[i] || 0;
+          const real = realDs.data[i] || 0;
+          if (!prev) return;
+          const ef = Math.round((1 - Math.abs(real - prev) / prev) * 100);
+          ctx.save();
+          ctx.font = 'bold 10px Sora,sans-serif';
+          ctx.fillStyle = ef >= META ? '#16a34a' : '#dc2626';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(ef+'%', bar.x, bar.y - 2);
+          ctx.restore();
+        });
+      }
+    };
+
     Object.values(this._s.charts).forEach(c=>c.destroy());
     this._s.charts = {};
     const ch = this._s.charts;
-    const base = {responsive:true, maintainAspectRatio:false,
-                  plugins:{legend:{display:false}}};
 
-    ch.c1 = new Chart(document.getElementById('c1'),{
+    ch.c1 = new Chart(document.getElementById('c1'), {
       type:'bar',
       data:{labels:[],datasets:[{data:[],backgroundColor:Y,borderRadius:4}]},
-      options:{...base,scales:{
-        x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-        y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}}
-      }}
+      options:{responsive:true,maintainAspectRatio:false,
+        layout:{padding:{top:20}},
+        plugins:{legend:{display:false}, barLabel_c1: labelPlugin(fmtHh)},
+        scales:{
+          x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+          y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}}
+        }
+      },
+      plugins:[labelPlugin(fmtHh)]
     });
 
-    ch.c2 = new Chart(document.getElementById('c2'),{
+    ch.c2 = new Chart(document.getElementById('c2'), {
       type:'bar',
       data:{labels:[],datasets:[{data:[],backgroundColor:[],borderRadius:4}]},
-      options:{...base,scales:{
-        x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-        y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}}
-      }}
+      options:{responsive:true,maintainAspectRatio:false,
+        layout:{padding:{top:20}},
+        plugins:{legend:{display:false}},
+        scales:{
+          x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+          y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}}
+        }
+      },
+      plugins:[labelPlugin(fmtPct)]
     });
 
-    ch.c3 = new Chart(document.getElementById('c3'),{
+    ch.c3 = new Chart(document.getElementById('c3'), {
       type:'bar',
       data:{labels:[],datasets:[{data:[],backgroundColor:[],borderRadius:4}]},
-      options:{...base,scales:{
-        x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-        y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}}
-      }}
+      options:{responsive:true,maintainAspectRatio:false,
+        layout:{padding:{top:20}},
+        plugins:{legend:{display:false}},
+        scales:{
+          x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+          y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}}
+        }
+      },
+      plugins:[labelPlugin(fmtPct)]
     });
 
-    ch.c4 = new Chart(document.getElementById('c4'),{
+    ch.c4 = new Chart(document.getElementById('c4'), {
       type:'bar',
       data:{labels:[],datasets:[
         {label:'Previsto', data:[],backgroundColor:Y,borderRadius:4},
         {label:'Realizado',data:[],backgroundColor:[],borderRadius:4},
       ]},
       options:{responsive:true,maintainAspectRatio:false,
+        layout:{padding:{top:20}},
         plugins:{legend:{display:true,labels:{color:tC,font:{size:10},boxWidth:10}}},
         scales:{
           x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
           y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}}
         }
-      }
+      },
+      plugins:[eficPlugin]
     });
 
-    /* C5 — barras HORIZONTAIS empilhadas por modalidade */
-    ch.c5 = new Chart(document.getElementById('c5'),{
+    ch.c5 = new Chart(document.getElementById('c5'), {
       type:'bar',
       data:{labels:[],datasets:[
         {label:'MCU',            data:[],backgroundColor:R,borderRadius:0},
