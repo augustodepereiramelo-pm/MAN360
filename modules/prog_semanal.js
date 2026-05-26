@@ -415,10 +415,8 @@ window.Modulos.prog_semanal = {
     const tC='rgba(80,80,80,.9)', gC='rgba(0,0,0,.06)';
     const META = 75;
 
-    /* Registrar plugin datalabels globalmente */
-    if (window.ChartDataLabels) {
-      Chart.register(ChartDataLabels);
-    }
+    /* Datalabels: usar por chart, não globalmente */
+    const DL = window.ChartDataLabels || null;
 
     /* Ordem por supervisão */
     const SUPERV = [
@@ -450,7 +448,7 @@ window.Modulos.prog_semanal = {
       options:{
         responsive:true, maintainAspectRatio:false,
         layout:{ padding:{ top:18 } },
-        plugins:{ legend:{display:false}, datalabels: dlAbove },
+        plugins:{ legend:{display:false}, ...(DL ? {datalabels: dlAbove} : {}) },
         scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
                  y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} }
       }
@@ -463,7 +461,7 @@ window.Modulos.prog_semanal = {
       options:{
         responsive:true, maintainAspectRatio:false,
         layout:{ padding:{ top:18 } },
-        plugins:{ legend:{display:false}, datalabels: dlAbove },
+        plugins:{ legend:{display:false}, ...(DL ? {datalabels: dlAbove} : {}) },
         scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
                  y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} }
       }
@@ -476,7 +474,7 @@ window.Modulos.prog_semanal = {
       options:{
         responsive:true, maintainAspectRatio:false,
         layout:{ padding:{ top:18 } },
-        plugins:{ legend:{display:false}, datalabels: dlAbove },
+        plugins:{ legend:{display:false}, ...(DL ? {datalabels: dlAbove} : {}) },
         scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
                  y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} }
       }
@@ -513,7 +511,7 @@ window.Modulos.prog_semanal = {
         layout:{ padding:{ top:18 } },
         plugins:{
           legend:{display:true, labels:{color:tC,font:{size:10},boxWidth:10}},
-          datalabels: dlEfic
+          ...(DL ? {datalabels: dlEfic} : {})
         },
         scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
                  y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} }
@@ -532,7 +530,6 @@ window.Modulos.prog_semanal = {
         responsive:true, maintainAspectRatio:false,
         plugins:{
           legend:{display:false},
-          datalabels:{ display:false },
           tooltip:{ callbacks:{ label:ctx=>' '+ctx.dataset.label+': '+ctx.raw+'h' } }
         },
         scales:{
@@ -632,6 +629,7 @@ window.Modulos.prog_semanal = {
     const modAcum={};
     sems.forEach(k=>{
       const dist=ds[k]&&ds[k]['_dist'];
+      console.log('C5 dist para semana', k, ':', dist);
       if(!dist) return;
       Object.keys(dist).forEach(m=>{
         if(!modAcum[m]) modAcum[m]={mcu:0,dentro:0,fora:0};
@@ -641,6 +639,7 @@ window.Modulos.prog_semanal = {
       });
     });
     const mods = Object.keys(modAcum).sort();
+    console.log('C5 mods:', mods, 'modAcum:', modAcum);
     ch.c5.data.labels = mods;
     ch.c5.data.datasets[0].data = mods.map(m=>Math.round(modAcum[m].mcu*10)/10);
     ch.c5.data.datasets[1].data = mods.map(m=>Math.round(modAcum[m].dentro*10)/10);
