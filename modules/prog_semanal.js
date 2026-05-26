@@ -537,6 +537,31 @@ window.Modulos.prog_semanal = {
       plugins:[eficPlugin]
     });
 
+    /* Plugin label para cada trecho do C5 */
+    const c5LabelPlugin = {
+      id: 'c5label',
+      afterDraw(chart) {
+        const {ctx} = chart;
+        chart.data.datasets.forEach((ds, di) => {
+          const meta = chart.getDatasetMeta(di);
+          if (meta.hidden) return;
+          meta.data.forEach((bar, i) => {
+            const val = ds.data[i];
+            if (!val || val < 1) return; /* só mostra se tiver espaço */
+            const w = bar.width || (bar.x - bar.base);
+            if (w < 28) return; /* trecho muito pequeno, não cabe */
+            ctx.save();
+            ctx.font = '600 9px Sora,sans-serif';
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(val+'h', bar.x - w/2, bar.y);
+            ctx.restore();
+          });
+        });
+      }
+    };
+
     ch.c5 = new Chart(document.getElementById('c5'), {
       type:'bar',
       data:{labels:[],datasets:[
@@ -552,7 +577,8 @@ window.Modulos.prog_semanal = {
           x:{stacked:true,ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}},
           y:{stacked:true,ticks:{color:tC,font:{size:10}},grid:{display:false}}
         }
-      }
+      },
+      plugins:[c5LabelPlugin]
     });
 
     this._s.META   = META;
@@ -679,7 +705,7 @@ window.Modulos.prog_semanal = {
         + '<span>Selecione apenas <strong>uma semana</strong> para ver os pontos de atenção detalhados</span></div>';
       return;
     }
-    const G='#16a34a', R='#dc2626', AM='#d97706', BL='#2563eb';
+    const G='#16a34a', R='#dc2626', AM='#d97706';
     const alertas = [];
 
     eqsPend.forEach(eq => {
@@ -724,14 +750,7 @@ window.Modulos.prog_semanal = {
           alertas.push({c:AM,i:'ti-alert-triangle',t:'<strong>'+eq+'</strong>: eficiência em <strong>'+ef+'%</strong> — H-h realizado muito acima do previsto, revisar dimensionamento'});
       }
 
-      /* H-h acima da média histórica */
-      const prevEq = sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].prev:0),0);
-      const hist = semanas.map(s=>{const k=s.semana+'/'+s.ano; return ds[k]&&ds[k][eq]?ds[k][eq].prev:0;}).filter(v=>v>0);
-      if (hist.length > 1) {
-        const med = hist.reduce((a,b)=>a+b,0)/hist.length;
-        if (prevEq > med*1.4)
-          alertas.push({c:BL,i:'ti-info-circle',t:'<strong>'+eq+'</strong>: H-h programado ('+Math.round(prevEq)+'h) acima da média histórica ('+Math.round(med)+'h/sem)'});
-      }
+
     });
 
     if (!alertas.length) {
