@@ -1029,24 +1029,27 @@ window.Modulos.prog_semanal = {
     if (chevron) chevron.style.transform = aberto ? '' : 'rotate(180deg)';
   },
 
-  _buildListaModalDD() {
+  async _buildListaModalDD() {
     const box = document.getElementById('lista-modal-items');
     if (!box) return;
-    box.innerHTML = '';
-    // Coletar modalidades dos dados
-    const { dadosSem:ds, activeSems:sems } = this._s;
-    const mods = new Set();
-    sems.forEach(k => {
-      if (ds[k] && ds[k]['_dist']) Object.keys(ds[k]['_dist']).forEach(m => mods.add(m));
-      if (ds[k] && ds[k]['_efic']) Object.keys(ds[k]['_efic']).forEach(m => mods.add(m));
-    });
-    [...mods].sort().forEach(m => {
-      const lbl = document.createElement('label');
-      lbl.className = 'dd-item';
-      lbl.style.fontSize = '11px';
-      lbl.innerHTML = '<input type="radio" name="lista-modal" value="'+m+'" onchange="Modulos.prog_semanal._filtrarLista()"> '+m;
-      box.appendChild(lbl);
-    });
+    box.innerHTML = '<div style="padding:8px 12px;font-size:11px;color:#9ca3af">Carregando...</div>';
+    try {
+      /* Buscar modalidades distintas diretamente do banco */
+      const { data } = await getDB()
+        .from('ordens_servico')
+        .select('modalidade')
+        .not('modalidade', 'is', null)
+        .neq('modalidade', '');
+      const mods = [...new Set((data||[]).map(r => (r.modalidade||'').toUpperCase().trim()).filter(Boolean))].sort();
+      box.innerHTML = '';
+      mods.forEach(m => {
+        const lbl = document.createElement('label');
+        lbl.className = 'dd-item';
+        lbl.style.fontSize = '11px';
+        lbl.innerHTML = '<input type="radio" name="lista-modal" value="'+m+'" onchange="Modulos.prog_semanal._filtrarLista()"> '+m;
+        box.appendChild(lbl);
+      });
+    } catch(e) { box.innerHTML = '<div style="padding:8px 12px;font-size:11px;color:#dc2626">Erro</div>'; }
   },
 
   async _filtrarLista() {
