@@ -359,8 +359,57 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
   gap: 12px;
   margin-bottom: 16px;
 }
+/* ═══ RESPONSIVO TABLET ═══ */
 @media (max-width: 900px) {
   .metrics-row { grid-template-columns: repeat(2, 1fr); }
+  .charts-row  { grid-template-columns: 1fr; }
+}
+
+/* ═══ RESPONSIVO MOBILE ═══ */
+@media (max-width: 600px) {
+  /* Sidebar oculta no mobile — só topbar */
+  #sidebar { display: none; }
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: var(--topbar-h) 1fr;
+  }
+  #topbar   { grid-column: 1; }
+  #main-content { grid-column: 1; }
+
+  /* Topbar compacta */
+  .topbar-logo { height: 26px; }
+  .topbar-btn span { display: none; }
+  .topbar-btn { padding: 0 8px; }
+
+  /* Padding menor */
+  #module-container { padding: 12px; }
+
+  /* Métricas: 2 colunas */
+  .metrics-row { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+  .m-val { font-size: 20px; }
+
+  /* Gráficos: 1 coluna */
+  .charts-row { grid-template-columns: 1fr; gap: 8px; }
+
+  /* Pontos de atenção + Reprogramadas: 1 coluna */
+  .charts-row:has(.card) { grid-template-columns: 1fr; }
+
+  /* Filtros: wrap em múltiplas linhas */
+  .filters-bar { gap: 8px; padding: 10px 12px; }
+  .filter-label { font-size: 9px; }
+  .dd-btn { max-width: 160px; font-size: 10px; }
+
+  /* Pontos atenção + Reprogramadas: sempre 1 coluna no mobile */
+  .bottom-cards { grid-template-columns: 1fr !important; }
+
+  /* Charts com menos altura no mobile */
+  .chart-container      { height: 180px; }
+  .chart-container-wide { height: 200px; }
+
+  /* Cards menores */
+  .card { padding: 12px; }
+  .chart-wrap { padding: 12px; }
+  .card-title { font-size: 9px; margin-bottom: 8px; }
 }
 .metric {
   background: var(--card-bg);
