@@ -105,7 +105,7 @@ window.Modulos.prog_semanal = {
   <div class="chart-container-wide"><canvas id="c5"></canvas></div>
 </div>
 
-<div class="charts-row">
+<div class="charts-row bottom-cards">
   <div class="card">
     <div class="card-title"><i class="ti ti-alert-triangle" style="color:var(--amber)"></i> PONTOS DE ATENÇÃO</div>
     <div id="alertas-body"><div style="padding:12px 0;font-size:12px;color:#9ca3af;text-align:center">Carregando...</div></div>
