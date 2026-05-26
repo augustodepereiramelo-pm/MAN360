@@ -238,30 +238,41 @@ window.Modulos.prog_semanal = {
               Fora: OS não está na programação da semana */
         const chavProg = new Set(progSem.map(p => p.os));
 
+        /* Buscar TODAS as OS encerradas no período */
         const { data: osEncDist } = await db
           .from('ordens_servico')
-          .select('os, cod_servico, tipo_atividade, modalidade, hh_real_os, hh_real_servico')
+          .select('os, cod_servico, tipo_atividade, modalidade, hh_real_os, hh_real_servico, hh_prev_servico')
           .eq('status_os', '4 - Encerrada')
           .gte('data_encerramento', dataIni)
           .lte('data_encerramento', dataFim);
 
         if (!ag[k]['_dist']) ag[k]['_dist'] = {};
+        if (!ag[k]['_efic']) ag[k]['_efic'] = {};
+
         (osEncDist||[]).forEach(o => {
-          /* H-h realizado: MCU usa hh_real_os, programável usa hh_real_servico */
-          const hhR = o.tipo_atividade === 'MCU'
-            ? (parseFloat(o.hh_real_os) || 0)
-            : (parseFloat(o.hh_real_servico) || 0);
-          if (!hhR) return;
-
           const modal = (o.modalidade || 'OUTROS').toUpperCase().trim();
-          if (!ag[k]['_dist'][modal]) ag[k]['_dist'][modal] = { mcu:0, dentro:0, fora:0 };
+          const hhR   = o.tipo_atividade === 'MCU'
+            ? (parseFloat(o.hh_real_os)      || 0)
+            : (parseFloat(o.hh_real_servico) || 0);
+          const hhP   = parseFloat(o.hh_prev_servico) || 0;
 
-          if (o.tipo_atividade === 'MCU') {
-            ag[k]['_dist'][modal].mcu += hhR;
-          } else if (chavProg.has(o.os)) {
-            ag[k]['_dist'][modal].dentro += hhR;
-          } else {
-            ag[k]['_dist'][modal].fora += hhR;
+          /* Distribuição C5 */
+          if (hhR > 0) {
+            if (!ag[k]['_dist'][modal]) ag[k]['_dist'][modal] = { mcu:0, dentro:0, fora:0 };
+            if (o.tipo_atividade === 'MCU') {
+              ag[k]['_dist'][modal].mcu    += hhR;
+            } else if (chavProg.has(o.os)) {
+              ag[k]['_dist'][modal].dentro += hhR;
+            } else {
+              ag[k]['_dist'][modal].fora   += hhR;
+            }
+          }
+
+          /* Eficiência C4: todas programáveis (não MCU) */
+          if (o.tipo_atividade !== 'MCU' && (hhR > 0 || hhP > 0)) {
+            if (!ag[k]['_efic'][modal]) ag[k]['_efic'][modal] = { prev:0, real:0 };
+            ag[k]['_efic'][modal].prev += hhP;
+            ag[k]['_efic'][modal].real += hhR;
           }
         });
 
@@ -656,20 +667,18 @@ window.Modulos.prog_semanal = {
 
     /* C4 — eficiência por MODALIDADE (apenas programáveis, MCU excluído)
        Agrupa: MEC1→MEC, CAL1+CAL2+CAL3→CAL, CIV1→CIV, ELE1→ELE etc. */
+    /* C4: agregar _efic por semana selecionada */
     const modalEfic = {};
-    eqs.forEach(eq => {
-      if (eqsPend.includes(eq)) return;
-      const modal = eq.replace(/\d+$/, ''); // MEC1→MEC, CAL2→CAL
-      if (!modalEfic[modal]) modalEfic[modal] = { prev: 0, real: 0 };
-      sems.forEach(k => {
-        if (ds[k] && ds[k][eq]) {
-          modalEfic[modal].prev += ds[k][eq].hhPrevEnc || 0;
-          modalEfic[modal].real += ds[k][eq].hhRealEnc || 0;
-        }
+    sems.forEach(k => {
+      const efic = ds[k] && ds[k]['_efic'];
+      if (!efic) return;
+      Object.keys(efic).forEach(modal => {
+        if (!modalEfic[modal]) modalEfic[modal] = { prev:0, real:0 };
+        modalEfic[modal].prev += efic[modal].prev || 0;
+        modalEfic[modal].real += efic[modal].real || 0;
       });
     });
-    // Filtrar modalidades sem dados
-    const c4Modals = Object.keys(modalEfic).filter(m => modalEfic[m].prev > 0).sort();
+    const c4Modals = Object.keys(modalEfic).filter(m => modalEfic[m].prev > 0 || modalEfic[m].real > 0).sort();
     const hhPE = c4Modals.map(m => Math.round(modalEfic[m].prev * 10) / 10);
     const hhRE = c4Modals.map(m => Math.round(modalEfic[m].real * 10) / 10);
     ch.c4.data.labels = c4Modals;
