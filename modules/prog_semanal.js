@@ -79,7 +79,7 @@ window.Modulos.prog_semanal = {
     <div class="chart-container"><canvas id="c1"></canvas></div>
   </div>
   <div class="chart-wrap">
-    <div class="card-title">ADERÊNCIA DA PROGRAMAÇÃO <span style="font-weight:400;color:#9ca3af">meta: 80%</span></div>
+    <div class="card-title">ADERÊNCIA DA PROGRAMAÇÃO <span style="font-weight:400;color:#9ca3af">meta: 75%</span></div>
     <div class="chart-container"><canvas id="c2"></canvas></div>
   </div>
 </div>
@@ -411,93 +411,188 @@ window.Modulos.prog_semanal = {
      CHARTS
   ══════════════════════════════════════════ */
   _initCharts() {
-    const Y='#F8C100',G='#16a34a',R='#E24B4A',B='#2563eb';
+    const Y='#F8C100', G='#16a34a', R='#E24B4A', B='#2563eb';
     const tC='rgba(80,80,80,.9)', gC='rgba(0,0,0,.06)';
-    const base = { responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} } };
+    const META = 75;
+
+    /* Plugin inline para labels acima das barras */
+    const topLabel = {
+      id: 'topLabel',
+      afterDatasetsDraw(chart) {
+        const {ctx, data} = chart;
+        chart.data.datasets.forEach((ds, dsi) => {
+          if (ds._noLabel) return;
+          const meta = chart.getDatasetMeta(dsi);
+          if (meta.hidden) return;
+          meta.data.forEach((bar, i) => {
+            const val = ds.data[i];
+            if (!val && val !== 0) return;
+            const lbl = ds._pct ? val+'%' : val+'h';
+            ctx.save();
+            ctx.font = 'bold 10px Sora, sans-serif';
+            ctx.fillStyle = '#374151';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(lbl, bar.x, bar.y - 2);
+            ctx.restore();
+          });
+        });
+      }
+    };
+
+    /* Ordem por supervisão para C2 e C4 */
+    const SUPERV = [
+      ['Oficina Manut.', ['MEC1','CAL1','CAL2','CAL3','CIV1']],
+      ['Elétrica',       ['ELE1','INS1','AUT1']],
+      ['Confiabilidade', ['ISP1','ISP2']],
+    ];
 
     Object.values(this._s.charts).forEach(c=>c.destroy());
     this._s.charts = {};
     const ch = this._s.charts;
+    const base = { responsive:true, maintainAspectRatio:false,
+                   plugins:{ legend:{display:false}, topLabel } };
 
-    ch.c1 = new Chart(document.getElementById('c1'),{
-      type:'bar', data:{ labels:[], datasets:[{data:[],backgroundColor:Y,borderRadius:4}] },
-      options:{...base,scales:{x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}}}}
+    /* C1 — H-h programado (ordem decrescente de valor, label acima) */
+    ch.c1 = new Chart(document.getElementById('c1'), {
+      type:'bar',
+      data:{ labels:[], datasets:[{ data:[], backgroundColor:Y, borderRadius:4, _pct:false }] },
+      options:{ ...base, plugins:{ ...base.plugins },
+        scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+                 y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} } }
     });
 
-    ch.c2 = new Chart(document.getElementById('c2'),{
+    /* C2 — Aderência por supervisão (sem linha tracejada, label % acima) */
+    ch.c2 = new Chart(document.getElementById('c2'), {
+      type:'bar',
+      data:{ labels:[], datasets:[{ data:[], backgroundColor:[], borderRadius:4, _pct:true }] },
+      options:{ ...base, plugins:{ ...base.plugins },
+        scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+                 y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} } }
+    });
+
+    /* C3 — Aderência semana a semana (sem linha tracejada, label % acima) */
+    ch.c3 = new Chart(document.getElementById('c3'), {
+      type:'bar',
+      data:{ labels:[], datasets:[{ data:[], backgroundColor:[], borderRadius:4, _pct:true }] },
+      options:{ ...base, plugins:{ ...base.plugins },
+        scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+                 y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} } }
+    });
+
+    /* C4 — Eficiência por supervisão (label de eficiência acima do realizado) */
+    const eficLabel = {
+      id: 'eficLabel',
+      afterDatasetsDraw(chart) {
+        const {ctx} = chart;
+        const dsPrev = chart.getDatasetMeta(0);
+        const dsReal = chart.getDatasetMeta(1);
+        chart.data.datasets[0].data.forEach((prev, i) => {
+          const real = chart.data.datasets[1].data[i] || 0;
+          if (!prev) return;
+          const efic = Math.round((1 - Math.abs(real - prev) / prev) * 100);
+          const bar  = dsReal.data[i];
+          ctx.save();
+          ctx.font = 'bold 10px Sora, sans-serif';
+          ctx.fillStyle = efic >= META ? '#16a34a' : '#dc2626';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(efic+'%', bar.x, bar.y - 2);
+          ctx.restore();
+        });
+      }
+    };
+
+    ch.c4 = new Chart(document.getElementById('c4'), {
       type:'bar',
       data:{ labels:[], datasets:[
-        {data:[],backgroundColor:[],borderRadius:4,order:2},
-        {type:'line',data:[],borderColor:Y,borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,label:'Meta 80%',order:1}
+        { label:'Previsto',  data:[], backgroundColor:Y, borderRadius:4, _noLabel:true },
+        { label:'Realizado', data:[], backgroundColor:[], borderRadius:4, _noLabel:true },
       ]},
-      options:{...base,plugins:{...base.plugins,legend:{display:false}},
-        scales:{x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}}}}
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:true,labels:{color:tC,font:{size:10},boxWidth:10}}, eficLabel },
+        scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+                 y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} } }
     });
 
-    ch.c3 = new Chart(document.getElementById('c3'),{
-      type:'bar',
-      data:{ labels:[], datasets:[
-        {data:[],backgroundColor:[],borderRadius:4,order:2},
-        {type:'line',data:[],borderColor:Y,borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,label:'Meta 80%',order:1}
-      ]},
-      options:{...base,plugins:{...base.plugins,legend:{display:false}},
-        scales:{x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}}}}
-    });
-
-    ch.c4 = new Chart(document.getElementById('c4'),{
-      type:'bar',
-      data:{ labels:[], datasets:[
-        {label:'Previsto', data:[],backgroundColor:Y,borderRadius:4},
-        {label:'Realizado',data:[],backgroundColor:[],borderRadius:4}
-      ]},
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:true,labels:{color:tC,font:{size:10},boxWidth:10}}},
-        scales:{x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}}}}
-    });
-
-    ch.c5 = new Chart(document.getElementById('c5'),{
+    /* C5 — Distribuição por modalidade (barras horizontais) */
+    ch.c5 = new Chart(document.getElementById('c5'), {
       type:'bar', indexAxis:'y',
       data:{ labels:[], datasets:[
-        {label:'MCU',            data:[],backgroundColor:R,borderRadius:0},
-        {label:'Dentro da prog.',data:[],backgroundColor:G,borderRadius:0},
-        {label:'Fora da prog.',  data:[],backgroundColor:B,borderRadius:0}
+        { label:'MCU',             data:[], backgroundColor:R, borderRadius:0 },
+        { label:'Dentro da prog.', data:[], backgroundColor:G, borderRadius:0 },
+        { label:'Fora da prog.',   data:[], backgroundColor:B, borderRadius:0 },
       ]},
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+ctx.dataset.label+': '+ctx.raw+'h'}}},
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false},
+          tooltip:{callbacks:{label:ctx=>' '+ctx.dataset.label+': '+ctx.raw+'h'}} },
         scales:{
           x:{stacked:true,ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}},
           y:{stacked:true,ticks:{color:tC,font:{size:10}},grid:{display:false}}
-        }}
+        } }
     });
 
+    this._s.META    = META;
+    this._s.SUPERV  = SUPERV;
     this._update();
   },
 
   _update() {
-    const {charts:ch, activeSems:sems, activeEqs:eqs, dadosSem:ds, semanas, eqsPend} = this._s;
+    const {charts:ch, activeSems:sems, activeEqs:eqs, dadosSem:ds,
+           semanas, eqsPend, META=75, SUPERV=[]} = this._s;
     if (!Object.keys(ch).length) return;
     const G='#16a34a', R='#E24B4A', CINZA='#d1d5db';
 
     /* H-h previsto por equipe */
-    const prev = eqs.map(eq => sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].prev:0),0));
+    const prevMap = {};
+    eqs.forEach(eq => {
+      prevMap[eq] = sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].prev:0),0);
+    });
 
-    /* Aderência: prevEnc / prev */
-    const adr = eqs.map((eq,i) => {
-      if (eqsPend.includes(eq)) return -1;
+    /* C1 — ordenar decrescente */
+    const c1Sorted = eqs.map(eq=>({ eq, v: Math.round(prevMap[eq]*10)/10 }))
+                        .sort((a,b)=>b.v-a.v);
+    ch.c1.data.labels = c1Sorted.map(x=>x.eq);
+    ch.c1.data.datasets[0].data = c1Sorted.map(x=>x.v);
+    ch.c1.update('none');
+
+    /* Aderência por equipe */
+    const adrMap = {};
+    eqs.forEach(eq => {
+      if (eqsPend.includes(eq)) { adrMap[eq]=-1; return; }
       const pEnc = sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].prevEnc:0),0);
-      return prev[i] ? Math.round(pEnc/prev[i]*100) : 0;
+      adrMap[eq] = prevMap[eq] ? Math.round(pEnc/prevMap[eq]*100) : 0;
     });
 
     /* Aderência global */
-    let tP=0, tE=0;
-    eqs.forEach((eq,i)=>{ if(!eqsPend.includes(eq)){tP+=prev[i]; tE+=sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].prevEnc:0),0);} });
+    let tP=0,tE=0;
+    eqs.forEach(eq=>{ if(!eqsPend.includes(eq)){tP+=prevMap[eq]; tE+=sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].prevEnc:0),0);} });
     const adrGlob = tP ? Math.round(tE/tP*100) : 0;
+    const totalPrev = eqs.reduce((s,eq)=>s+prevMap[eq],0);
 
-    /* Eficiência: hhPrevEnc × hhRealEnc */
-    const hhPE = eqs.map(eq=>sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhPrevEnc:0),0));
-    const hhRE = eqs.map(eq=>sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhRealEnc:0),0));
+    /* Métricas cabeçalho */
+    const mHH=document.getElementById('m-hh'), mAdr=document.getElementById('m-adr'), mSub=document.getElementById('m-hh-sub');
+    if(mHH)  mHH.textContent  = totalPrev.toLocaleString('pt-BR')+'h';
+    if(mSub) mSub.textContent = eqs.length+' equipe'+(eqs.length!==1?'s':'')+' · '+sems.length+' semana'+(sems.length!==1?'s':'');
+    if(mAdr) { mAdr.textContent=adrGlob+'%'; mAdr.style.color=adrGlob>=META?G:(adrGlob>0?R:'#9ca3af'); }
 
-    /* Aderência semana a semana */
+    /* C2 — ordem por supervisão */
+    const c2Labels=[], c2Vals=[], c2Colors=[];
+    let lastSuperv='', needSep=false;
+    const allEqsOrder = SUPERV.flatMap(([,eqList])=>eqList).filter(eq=>eqs.includes(eq));
+    const remaining = eqs.filter(eq=>!allEqsOrder.includes(eq));
+    [...allEqsOrder,...remaining].forEach(eq=>{
+      const v = adrMap[eq];
+      c2Labels.push(eq);
+      c2Vals.push(v===-1?0:v);
+      c2Colors.push(v===-1?CINZA:v>=META?G:v>0?R:'#9ca3af');
+    });
+    ch.c2.data.labels = c2Labels;
+    ch.c2.data.datasets[0].data = c2Vals;
+    ch.c2.data.datasets[0].backgroundColor = c2Colors;
+    ch.c2.update('none');
+
+    /* C3 — aderência semana a semana */
     const semLbl=[], semVals=[];
     semanas.forEach(({semana,ano})=>{
       const k=semana+'/'+ano; if(!ds[k]) return;
@@ -505,73 +600,62 @@ window.Modulos.prog_semanal = {
       eqs.forEach(eq=>{ if(!eqsPend.includes(eq)&&ds[k][eq]){p+=ds[k][eq].prev;e+=ds[k][eq].prevEnc;} });
       semLbl.push('Sem '+semana); semVals.push(p?Math.round(e/p*100):0);
     });
+    ch.c3.data.labels = semLbl;
+    ch.c3.data.datasets[0].data = semVals;
+    ch.c3.data.datasets[0].backgroundColor = semVals.map(v=>v>=META?G:v>0?R:'#9ca3af');
+    ch.c3.update('none');
 
-    /* Distribuição por modalidade */
-    const modAcum = {};
+    /* C4 — eficiência por supervisão (mesma ordem do C2) */
+    const hhPE = c2Labels.map(eq=>sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhPrevEnc:0),0));
+    const hhRE = c2Labels.map(eq=>sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhRealEnc:0),0));
+    ch.c4.data.labels = c2Labels;
+    ch.c4.data.datasets[0].data = hhPE.map(v=>Math.round(v*10)/10);
+    ch.c4.data.datasets[1].data = hhRE.map(v=>Math.round(v*10)/10);
+    ch.c4.data.datasets[1].backgroundColor = hhRE.map((r,i)=>{
+      if(!hhPE[i]) return '#9ca3af';
+      const ef = (1 - Math.abs(r-hhPE[i])/hhPE[i])*100;
+      return ef>=META?G:r>0?R:'#9ca3af';
+    });
+    ch.c4.update('none');
+
+    /* C5 — distribuição por modalidade */
+    const modAcum={};
     sems.forEach(k=>{
-      const dist = ds[k] && ds[k]['_dist'];
-      if (!dist) return;
+      const dist=ds[k]&&ds[k]['_dist'];
+      if(!dist) return;
       Object.keys(dist).forEach(m=>{
-        if (!modAcum[m]) modAcum[m]={mcu:0,dentro:0,fora:0};
-        modAcum[m].mcu    += dist[m].mcu    || 0;
-        modAcum[m].dentro += dist[m].dentro || 0;
-        modAcum[m].fora   += dist[m].fora   || 0;
+        if(!modAcum[m]) modAcum[m]={mcu:0,dentro:0,fora:0};
+        modAcum[m].mcu    += dist[m].mcu    ||0;
+        modAcum[m].dentro += dist[m].dentro ||0;
+        modAcum[m].fora   += dist[m].fora   ||0;
       });
     });
     const mods = Object.keys(modAcum).sort();
-
-    /* Métricas cabeçalho */
-    const totalPrev = prev.reduce((a,b)=>a+b,0);
-    const mHH = document.getElementById('m-hh');
-    const mAdr = document.getElementById('m-adr');
-    const mSub = document.getElementById('m-hh-sub');
-    if (mHH)  mHH.textContent  = totalPrev.toLocaleString('pt-BR')+'h';
-    if (mSub) mSub.textContent = eqs.length+' equipe'+(eqs.length!==1?'s':'')+' · '+sems.length+' semana'+(sems.length!==1?'s':'');
-    if (mAdr) { mAdr.textContent=adrGlob+'%'; mAdr.style.color=adrGlob>=80?G:(adrGlob>0?R:'#9ca3af'); }
-
-    /* C1 */
-    ch.c1.data.labels=eqs; ch.c1.data.datasets[0].data=prev.map(v=>Math.round(v*10)/10); ch.c1.update('none');
-
-    /* C2 */
-    ch.c2.data.labels=eqs;
-    ch.c2.data.datasets[0].data=adr.map(v=>v===-1?0:v);
-    ch.c2.data.datasets[0].backgroundColor=adr.map(v=>v===-1?CINZA:v>=80?G:v>0?R:'#9ca3af');
-    ch.c2.data.datasets[1].data=eqs.map(()=>80);
-    ch.c2.update('none');
-
-    /* C3 */
-    ch.c3.data.labels=semLbl;
-    ch.c3.data.datasets[0].data=semVals;
-    ch.c3.data.datasets[0].backgroundColor=semVals.map(v=>v>=80?G:v>0?R:'#9ca3af');
-    ch.c3.data.datasets[1].data=semLbl.map(()=>80);
-    ch.c3.update('none');
-
-    /* C4 */
-    ch.c4.data.labels=eqs;
-    ch.c4.data.datasets[0].data=hhPE.map(v=>Math.round(v*10)/10);
-    ch.c4.data.datasets[1].data=hhRE.map(v=>Math.round(v*10)/10);
-    ch.c4.data.datasets[1].backgroundColor=hhRE.map((r,i)=>hhPE[i]&&r/hhPE[i]>=0.8?G:r>0?R:'#9ca3af');
-    ch.c4.update('none');
-
-    /* C5 */
-    ch.c5.data.labels=mods;
-    ch.c5.data.datasets[0].data=mods.map(m=>Math.round(modAcum[m].mcu*10)/10);
-    ch.c5.data.datasets[1].data=mods.map(m=>Math.round(modAcum[m].dentro*10)/10);
-    ch.c5.data.datasets[2].data=mods.map(m=>Math.round(modAcum[m].fora*10)/10);
+    ch.c5.data.labels = mods;
+    ch.c5.data.datasets[0].data = mods.map(m=>Math.round(modAcum[m].mcu*10)/10);
+    ch.c5.data.datasets[1].data = mods.map(m=>Math.round(modAcum[m].dentro*10)/10);
+    ch.c5.data.datasets[2].data = mods.map(m=>Math.round(modAcum[m].fora*10)/10);
     ch.c5.update('none');
 
     /* Alertas */
-    this._alertas(adr, eqs);
+    this._alertas(adrMap, eqs);
     this._reprog();
   },
 
   /* ══════════════════════════════════════════
      ALERTAS
   ══════════════════════════════════════════ */
-  _alertas(adr, eqs) {
+  _alertas(adrMap, eqs) {
     const el = document.getElementById('alertas-body');
     if (!el) return;
-    const {eqsPend, dadosSem:ds, semanas, activeSems:sems} = this._s;
+    const {eqsPend, dadosSem:ds, semanas, activeSems:sems, META=75} = this._s;
+
+    if (sems.length > 1) {
+      el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:#d97706;font-size:12px">'
+        + '<i class="ti ti-info-circle" style="font-size:16px"></i>'
+        + '<span>Selecione apenas <strong>uma semana</strong> para ver os pontos de atenção detalhados</span></div>';
+      return;
+    }
     const G='#16a34a', R='#dc2626', AM='#d97706', BL='#2563eb';
     const alertas = [];
 
@@ -580,9 +664,9 @@ window.Modulos.prog_semanal = {
         alertas.push({c:AM,i:'ti-alert-circle',t:'<strong>'+eq+'</strong>: OS não importadas — aderência indisponível'});
     });
 
-    eqs.forEach((eq,i) => {
+    eqs.forEach((eq) => {
       if (eqsPend.includes(eq)) return;
-      const a = adr[i];
+      const a = adrMap[eq];
 
       if (a === 0) {
         alertas.push({c:AM,i:'ti-circle-off',t:'<strong>'+eq+'</strong>: nenhuma OS encerrada na programação desta semana'});
@@ -610,8 +694,8 @@ window.Modulos.prog_semanal = {
       const hhPE = sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhPrevEnc:0),0);
       const hhRE = sems.reduce((s,k)=>s+((ds[k]&&ds[k][eq])?ds[k][eq].hhRealEnc:0),0);
       if (hhPE > 0) {
-        const ef = Math.round(hhRE/hhPE*100);
-        if (ef < 80 && a >= 80)
+        const ef = hhPE > 0 ? Math.round((1 - Math.abs(hhRE-hhPE)/hhPE)*100) : 0;
+        if (ef < META && a >= META)
           alertas.push({c:AM,i:'ti-chart-bar',t:'<strong>'+eq+'</strong>: aderência OK mas eficiência em <strong>'+ef+'%</strong> — H-h realizado abaixo do previsto nas OS encerradas'});
         if (ef > 130)
           alertas.push({c:AM,i:'ti-alert-triangle',t:'<strong>'+eq+'</strong>: eficiência em <strong>'+ef+'%</strong> — H-h realizado muito acima do previsto, revisar dimensionamento'});
@@ -644,6 +728,12 @@ window.Modulos.prog_semanal = {
     if (!reprEl) return;
     const {activeSems:sems, semanas, eqsPend} = this._s;
     if (!sems.length) { reprEl.innerHTML='<div style="padding:12px 0;font-size:12px;color:#9ca3af;text-align:center">Selecione uma semana</div>'; return; }
+    if (sems.length > 1) {
+      reprEl.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:#d97706;font-size:12px">'
+        + '<i class="ti ti-info-circle" style="font-size:16px"></i>'
+        + '<span>Selecione apenas <strong>uma semana</strong> para ver as OS reprogramadas</span></div>';
+      return;
+    }
 
     try {
       const db = getDB();
