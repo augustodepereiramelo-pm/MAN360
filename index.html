@@ -558,7 +558,7 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
 }
 .chart-container-wide {
   position: relative;
-  height: 160px;
+  height: 220px;
   width: 100%;
 }
 
@@ -806,25 +806,25 @@ async function navegarPara(item) {
 }
 
 /* ── Carregador de módulos ── */
-const _modulosCarregados = {};
 async function carregarModulo(page) {
-  if (!_modulosCarregados[page]) {
-    // Criar script tag dinamicamente
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = `modules/${page}.js`;
-      s.onload = resolve;
-      s.onerror = () => reject(new Error(`Módulo '${page}' não encontrado`));
-      document.head.appendChild(s);
-    });
-    _modulosCarregados[page] = true;
-  }
-  // Cada módulo expõe window.Modulo.init(container)
+  // Remove script anterior para forçar reload sempre
+  const prev = document.querySelector(`script[data-mod="${page}"]`);
+  if (prev) prev.remove();
+  if (window.Modulos) delete window.Modulos[page];
+
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = `modules/${page}.js?v=` + Date.now();
+    s.dataset.mod = page;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error(`Módulo '${page}' não encontrado`));
+    document.head.appendChild(s);
+  });
+
   if (window.Modulos && window.Modulos[page]) {
     await window.Modulos[page].init(document.getElementById('module-container'));
   }
 }
-
 /* ── Exportar (delegado ao módulo ativo) ── */
 function exportarModulo() {
   if (window.Modulos && window.Modulos[moduloAtivo] && window.Modulos[moduloAtivo].exportar) {
