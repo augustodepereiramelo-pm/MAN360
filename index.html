@@ -365,8 +365,8 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
 /* ═══ RESPONSIVO TABLET ═══ */
 @media (max-width: 900px) {
   .metrics-row { grid-template-columns: repeat(2, 1fr); }
-  .charts-row  { grid-template-columns: 1fr; }
-  .bottom-cards { grid-template-columns: 1fr; }
+  .charts-row  { grid-template-columns: 1fr !important; }
+  .bottom-cards { grid-template-columns: 1fr !important; }
 }
 
 /* ═══ RESPONSIVO MOBILE ═══ */
@@ -393,8 +393,6 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
   .m-val { font-size: 20px; }
 
   /* Gráficos: 1 coluna */
-  .charts-row { grid-template-columns: 1fr; gap: 8px; }
-
   /* Pontos de atenção + Reprogramadas: 1 coluna */
   .charts-row:has(.card) { grid-template-columns: 1fr; }
 
