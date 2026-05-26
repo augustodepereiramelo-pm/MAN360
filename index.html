@@ -362,6 +362,8 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
   gap: 12px;
   margin-bottom: 16px;
 }
+
+
 /* ═══ RESPONSIVO TABLET ═══ */
 @media (max-width: 900px) {
   .metrics-row { grid-template-columns: repeat(2, 1fr); }
@@ -587,7 +589,7 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
 /* Grid de gráficos */
 .charts-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
   gap: 12px;
   margin-bottom: 12px;
 }
