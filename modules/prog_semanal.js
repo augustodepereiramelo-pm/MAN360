@@ -414,11 +414,6 @@ window.Modulos.prog_semanal = {
     const Y='#F8C100', G='#16a34a', R='#E24B4A', B='#2563eb';
     const tC='rgba(80,80,80,.9)', gC='rgba(0,0,0,.06)';
     const META = 75;
-
-    /* Datalabels: usar por chart, não globalmente */
-    const DL = window.ChartDataLabels || null;
-
-    /* Ordem por supervisão */
     const SUPERV = [
       ['Oficina Manut.', ['MEC1','CAL1','CAL2','CAL3','CIV1']],
       ['Elétrica',       ['ELE1','INS1','AUT1']],
@@ -428,113 +423,66 @@ window.Modulos.prog_semanal = {
     Object.values(this._s.charts).forEach(c=>c.destroy());
     this._s.charts = {};
     const ch = this._s.charts;
+    const base = {responsive:true, maintainAspectRatio:false,
+                  plugins:{legend:{display:false}}};
 
-    /* Config datalabels padrão para barras verticais (valor acima) */
-    const dlAbove = {
-      anchor:'end', align:'end', color:'#374151',
-      font:{ family:'Sora, sans-serif', size:10, weight:'bold' },
-      formatter:(v,ctx) => {
-        if (!v && v!==0) return null;
-        const ds = ctx.chart.data.datasets[ctx.datasetIndex];
-        return ds._pct ? v+'%' : v+'h';
-      },
-      display: ctx => ctx.chart.data.datasets[ctx.datasetIndex]._noLabel ? false : true,
-    };
-
-    /* C1 — H-h programado, ordenado decrescente */
-    ch.c1 = new Chart(document.getElementById('c1'), {
+    ch.c1 = new Chart(document.getElementById('c1'),{
       type:'bar',
-      data:{ labels:[], datasets:[{ data:[], backgroundColor:Y, borderRadius:4, _pct:false }] },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        layout:{ padding:{ top:18 } },
-        plugins:{ legend:{display:false}, ...(DL ? {datalabels: dlAbove} : {}) },
-        scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-                 y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} }
-      }
+      data:{labels:[],datasets:[{data:[],backgroundColor:Y,borderRadius:4}]},
+      options:{...base,scales:{
+        x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+        y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}}
+      }}
     });
 
-    /* C2 — Aderência por supervisão */
-    ch.c2 = new Chart(document.getElementById('c2'), {
+    ch.c2 = new Chart(document.getElementById('c2'),{
       type:'bar',
-      data:{ labels:[], datasets:[{ data:[], backgroundColor:[], borderRadius:4, _pct:true }] },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        layout:{ padding:{ top:18 } },
-        plugins:{ legend:{display:false}, ...(DL ? {datalabels: dlAbove} : {}) },
-        scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-                 y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} }
-      }
+      data:{labels:[],datasets:[{data:[],backgroundColor:[],borderRadius:4}]},
+      options:{...base,scales:{
+        x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+        y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}}
+      }}
     });
 
-    /* C3 — Aderência semana a semana */
-    ch.c3 = new Chart(document.getElementById('c3'), {
+    ch.c3 = new Chart(document.getElementById('c3'),{
       type:'bar',
-      data:{ labels:[], datasets:[{ data:[], backgroundColor:[], borderRadius:4, _pct:true }] },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        layout:{ padding:{ top:18 } },
-        plugins:{ legend:{display:false}, ...(DL ? {datalabels: dlAbove} : {}) },
-        scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-                 y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} }
-      }
+      data:{labels:[],datasets:[{data:[],backgroundColor:[],borderRadius:4}]},
+      options:{...base,scales:{
+        x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+        y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}}
+      }}
     });
 
-    /* C4 — Eficiência, label de eficiência acima do realizado */
-    const dlEfic = {
-      anchor:'end', align:'end',
-      font:{ family:'Sora, sans-serif', size:10, weight:'bold' },
-      display: ctx => ctx.datasetIndex === 1 && ctx.chart.data.datasets[0].data[ctx.dataIndex] > 0,
-      color: ctx => {
-        const prev = ctx.chart.data.datasets[0].data[ctx.dataIndex] || 0;
-        const real = ctx.chart.data.datasets[1].data[ctx.dataIndex] || 0;
-        const ef   = prev ? Math.round((1 - Math.abs(real-prev)/prev)*100) : 0;
-        return ef >= META ? '#16a34a' : '#dc2626';
-      },
-      formatter: (v, ctx) => {
-        const prev = ctx.chart.data.datasets[0].data[ctx.dataIndex] || 0;
-        const real = v || 0;
-        if (!prev) return null;
-        const ef = Math.round((1 - Math.abs(real-prev)/prev)*100);
-        return ef+'%';
-      }
-    };
-
-    ch.c4 = new Chart(document.getElementById('c4'), {
+    ch.c4 = new Chart(document.getElementById('c4'),{
       type:'bar',
-      data:{ labels:[], datasets:[
-        { label:'Previsto',  data:[], backgroundColor:Y, borderRadius:4 },
-        { label:'Realizado', data:[], backgroundColor:[], borderRadius:4 },
+      data:{labels:[],datasets:[
+        {label:'Previsto', data:[],backgroundColor:Y,borderRadius:4},
+        {label:'Realizado',data:[],backgroundColor:[],borderRadius:4},
       ]},
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        layout:{ padding:{ top:18 } },
-        plugins:{
-          legend:{display:true, labels:{color:tC,font:{size:10},boxWidth:10}},
-          ...(DL ? {datalabels: dlEfic} : {})
-        },
-        scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-                 y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} }
-      }
-    });
-
-    /* C5 — Distribuição por modalidade, barras HORIZONTAIS empilhadas */
-    ch.c5 = new Chart(document.getElementById('c5'), {
-      type:'bar', indexAxis:'y',
-      data:{ labels:[], datasets:[
-        { label:'MCU',             data:[], backgroundColor:R, borderRadius:0 },
-        { label:'Dentro da prog.', data:[], backgroundColor:G, borderRadius:0 },
-        { label:'Fora da prog.',   data:[], backgroundColor:B, borderRadius:0 },
-      ]},
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{
-          legend:{display:false},
-          tooltip:{ callbacks:{ label:ctx=>' '+ctx.dataset.label+': '+ctx.raw+'h' } }
-        },
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:true,labels:{color:tC,font:{size:10},boxWidth:10}}},
         scales:{
-          x:{ stacked:true, ticks:{color:tC,font:{size:10},callback:v=>v+'h'}, grid:{color:gC} },
-          y:{ stacked:true, ticks:{color:tC,font:{size:10}}, grid:{display:false} }
+          x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
+          y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}}
+        }
+      }
+    });
+
+    /* C5 — barras HORIZONTAIS empilhadas por modalidade */
+    ch.c5 = new Chart(document.getElementById('c5'),{
+      type:'bar',
+      data:{labels:[],datasets:[
+        {label:'MCU',            data:[],backgroundColor:R,borderRadius:0},
+        {label:'Dentro da prog.',data:[],backgroundColor:G,borderRadius:0},
+        {label:'Fora da prog.',  data:[],backgroundColor:B,borderRadius:0},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        indexAxis:'y',
+        plugins:{legend:{display:false},
+          tooltip:{callbacks:{label:ctx=>' '+ctx.dataset.label+': '+ctx.raw+'h'}}},
+        scales:{
+          x:{stacked:true,ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}},
+          y:{stacked:true,ticks:{color:tC,font:{size:10}},grid:{display:false}}
         }
       }
     });
@@ -629,7 +577,6 @@ window.Modulos.prog_semanal = {
     const modAcum={};
     sems.forEach(k=>{
       const dist=ds[k]&&ds[k]['_dist'];
-      console.log('C5 dist para semana', k, ':', dist);
       if(!dist) return;
       Object.keys(dist).forEach(m=>{
         if(!modAcum[m]) modAcum[m]={mcu:0,dentro:0,fora:0};
@@ -639,7 +586,6 @@ window.Modulos.prog_semanal = {
       });
     });
     const mods = Object.keys(modAcum).sort();
-    console.log('C5 mods:', mods, 'modAcum:', modAcum);
     ch.c5.data.labels = mods;
     ch.c5.data.datasets[0].data = mods.map(m=>Math.round(modAcum[m].mcu*10)/10);
     ch.c5.data.datasets[1].data = mods.map(m=>Math.round(modAcum[m].dentro*10)/10);
