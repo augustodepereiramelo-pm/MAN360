@@ -415,32 +415,12 @@ window.Modulos.prog_semanal = {
     const tC='rgba(80,80,80,.9)', gC='rgba(0,0,0,.06)';
     const META = 75;
 
-    /* Plugin inline para labels acima das barras */
-    const topLabel = {
-      id: 'topLabel',
-      afterDatasetsDraw(chart) {
-        const {ctx, data} = chart;
-        chart.data.datasets.forEach((ds, dsi) => {
-          if (ds._noLabel) return;
-          const meta = chart.getDatasetMeta(dsi);
-          if (meta.hidden) return;
-          meta.data.forEach((bar, i) => {
-            const val = ds.data[i];
-            if (!val && val !== 0) return;
-            const lbl = ds._pct ? val+'%' : val+'h';
-            ctx.save();
-            ctx.font = 'bold 10px Sora, sans-serif';
-            ctx.fillStyle = '#374151';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText(lbl, bar.x, bar.y - 2);
-            ctx.restore();
-          });
-        });
-      }
-    };
+    /* Registrar plugin datalabels globalmente */
+    if (window.ChartDataLabels) {
+      Chart.register(ChartDataLabels);
+    }
 
-    /* Ordem por supervisão para C2 e C4 */
+    /* Ordem por supervisão */
     const SUPERV = [
       ['Oficina Manut.', ['MEC1','CAL1','CAL2','CAL3','CIV1']],
       ['Elétrica',       ['ELE1','INS1','AUT1']],
@@ -450,72 +430,97 @@ window.Modulos.prog_semanal = {
     Object.values(this._s.charts).forEach(c=>c.destroy());
     this._s.charts = {};
     const ch = this._s.charts;
-    const base = { responsive:true, maintainAspectRatio:false,
-                   plugins:{ legend:{display:false}, topLabel } };
 
-    /* C1 — H-h programado (ordem decrescente de valor, label acima) */
+    /* Config datalabels padrão para barras verticais (valor acima) */
+    const dlAbove = {
+      anchor:'end', align:'end', color:'#374151',
+      font:{ family:'Sora, sans-serif', size:10, weight:'bold' },
+      formatter:(v,ctx) => {
+        if (!v && v!==0) return null;
+        const ds = ctx.chart.data.datasets[ctx.datasetIndex];
+        return ds._pct ? v+'%' : v+'h';
+      },
+      display: ctx => ctx.chart.data.datasets[ctx.datasetIndex]._noLabel ? false : true,
+    };
+
+    /* C1 — H-h programado, ordenado decrescente */
     ch.c1 = new Chart(document.getElementById('c1'), {
       type:'bar',
       data:{ labels:[], datasets:[{ data:[], backgroundColor:Y, borderRadius:4, _pct:false }] },
-      options:{ ...base, plugins:{ ...base.plugins },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        layout:{ padding:{ top:18 } },
+        plugins:{ legend:{display:false}, datalabels: dlAbove },
         scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-                 y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} } }
+                 y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} }
+      }
     });
 
-    /* C2 — Aderência por supervisão (sem linha tracejada, label % acima) */
+    /* C2 — Aderência por supervisão */
     ch.c2 = new Chart(document.getElementById('c2'), {
       type:'bar',
       data:{ labels:[], datasets:[{ data:[], backgroundColor:[], borderRadius:4, _pct:true }] },
-      options:{ ...base, plugins:{ ...base.plugins },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        layout:{ padding:{ top:18 } },
+        plugins:{ legend:{display:false}, datalabels: dlAbove },
         scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-                 y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} } }
+                 y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} }
+      }
     });
 
-    /* C3 — Aderência semana a semana (sem linha tracejada, label % acima) */
+    /* C3 — Aderência semana a semana */
     ch.c3 = new Chart(document.getElementById('c3'), {
       type:'bar',
       data:{ labels:[], datasets:[{ data:[], backgroundColor:[], borderRadius:4, _pct:true }] },
-      options:{ ...base, plugins:{ ...base.plugins },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        layout:{ padding:{ top:18 } },
+        plugins:{ legend:{display:false}, datalabels: dlAbove },
         scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-                 y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} } }
+                 y:{min:0,max:100,ticks:{color:tC,font:{size:10},callback:v=>v+'%'},grid:{color:gC}} }
+      }
     });
 
-    /* C4 — Eficiência por supervisão (label de eficiência acima do realizado) */
-    const eficLabel = {
-      id: 'eficLabel',
-      afterDatasetsDraw(chart) {
-        const {ctx} = chart;
-        const dsPrev = chart.getDatasetMeta(0);
-        const dsReal = chart.getDatasetMeta(1);
-        chart.data.datasets[0].data.forEach((prev, i) => {
-          const real = chart.data.datasets[1].data[i] || 0;
-          if (!prev) return;
-          const efic = Math.round((1 - Math.abs(real - prev) / prev) * 100);
-          const bar  = dsReal.data[i];
-          ctx.save();
-          ctx.font = 'bold 10px Sora, sans-serif';
-          ctx.fillStyle = efic >= META ? '#16a34a' : '#dc2626';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'bottom';
-          ctx.fillText(efic+'%', bar.x, bar.y - 2);
-          ctx.restore();
-        });
+    /* C4 — Eficiência, label de eficiência acima do realizado */
+    const dlEfic = {
+      anchor:'end', align:'end',
+      font:{ family:'Sora, sans-serif', size:10, weight:'bold' },
+      display: ctx => ctx.datasetIndex === 1 && ctx.chart.data.datasets[0].data[ctx.dataIndex] > 0,
+      color: ctx => {
+        const prev = ctx.chart.data.datasets[0].data[ctx.dataIndex] || 0;
+        const real = ctx.chart.data.datasets[1].data[ctx.dataIndex] || 0;
+        const ef   = prev ? Math.round((1 - Math.abs(real-prev)/prev)*100) : 0;
+        return ef >= META ? '#16a34a' : '#dc2626';
+      },
+      formatter: (v, ctx) => {
+        const prev = ctx.chart.data.datasets[0].data[ctx.dataIndex] || 0;
+        const real = v || 0;
+        if (!prev) return null;
+        const ef = Math.round((1 - Math.abs(real-prev)/prev)*100);
+        return ef+'%';
       }
     };
 
     ch.c4 = new Chart(document.getElementById('c4'), {
       type:'bar',
       data:{ labels:[], datasets:[
-        { label:'Previsto',  data:[], backgroundColor:Y, borderRadius:4, _noLabel:true },
-        { label:'Realizado', data:[], backgroundColor:[], borderRadius:4, _noLabel:true },
+        { label:'Previsto',  data:[], backgroundColor:Y, borderRadius:4 },
+        { label:'Realizado', data:[], backgroundColor:[], borderRadius:4 },
       ]},
-      options:{ responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:true,labels:{color:tC,font:{size:10},boxWidth:10}}, eficLabel },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        layout:{ padding:{ top:18 } },
+        plugins:{
+          legend:{display:true, labels:{color:tC,font:{size:10},boxWidth:10}},
+          datalabels: dlEfic
+        },
         scales:{ x:{ticks:{color:tC,font:{size:10}},grid:{display:false}},
-                 y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} } }
+                 y:{ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}} }
+      }
     });
 
-    /* C5 — Distribuição por modalidade (barras horizontais) */
+    /* C5 — Distribuição por modalidade, barras HORIZONTAIS empilhadas */
     ch.c5 = new Chart(document.getElementById('c5'), {
       type:'bar', indexAxis:'y',
       data:{ labels:[], datasets:[
@@ -523,17 +528,22 @@ window.Modulos.prog_semanal = {
         { label:'Dentro da prog.', data:[], backgroundColor:G, borderRadius:0 },
         { label:'Fora da prog.',   data:[], backgroundColor:B, borderRadius:0 },
       ]},
-      options:{ responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:false},
-          tooltip:{callbacks:{label:ctx=>' '+ctx.dataset.label+': '+ctx.raw+'h'}} },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          datalabels:{ display:false },
+          tooltip:{ callbacks:{ label:ctx=>' '+ctx.dataset.label+': '+ctx.raw+'h' } }
+        },
         scales:{
-          x:{stacked:true,ticks:{color:tC,font:{size:10},callback:v=>v+'h'},grid:{color:gC}},
-          y:{stacked:true,ticks:{color:tC,font:{size:10}},grid:{display:false}}
-        } }
+          x:{ stacked:true, ticks:{color:tC,font:{size:10},callback:v=>v+'h'}, grid:{color:gC} },
+          y:{ stacked:true, ticks:{color:tC,font:{size:10}}, grid:{display:false} }
+        }
+      }
     });
 
-    this._s.META    = META;
-    this._s.SUPERV  = SUPERV;
+    this._s.META   = META;
+    this._s.SUPERV = SUPERV;
     this._update();
   },
 
