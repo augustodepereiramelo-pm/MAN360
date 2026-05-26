@@ -355,9 +355,9 @@ window.Modulos.prog_semanal = {
           }
         });
 
-        /* Arredondar — só equipes, não _dist */
+        /* Arredondar — só equipes, não _dist nem _efic */
         Object.entries(ag[k]).forEach(([key, v]) => {
-          if (key === '_dist') return;
+          if (key === '_dist' || key === '_efic') return;
           if (typeof v === 'object' && v !== null) {
             v.prev      = Math.round((v.prev||0)*10)/10;
             v.prevEnc   = Math.round((v.prevEnc||0)*10)/10;
@@ -825,22 +825,25 @@ window.Modulos.prog_semanal = {
         alertas.push({c:AM,i:'ti-circle-off',t:'<strong>'+eq+'</strong>: nenhuma OS encerrada na programação desta semana'});
         return;
       }
-      if (a > 0 && a < 80) {
-        /* Contar semanas consecutivas abaixo da meta */
-        const semsOrd = [...semanas].sort((x,y)=>x.semana-y.semana);
-        const ultKey  = sems.slice().sort().pop();
-        const idx     = semsOrd.findIndex(s=>s.semana+'/'+s.ano===ultKey);
+      if (a > 0 && a < META) {
+        /* Só alertar a partir da 2ª semana consecutiva abaixo da meta */
+        const semsOrd2 = [...semanas].sort((x,y) => x.semana - y.semana);
+        const ultKey2  = sems.slice().sort().pop();
+        const semIdx2  = semsOrd2.findIndex(s => s.semana+'/'+s.ano === ultKey2);
         let consec = 0;
-        for (let k=idx-1; k>=0; k--) {
-          const kk = semsOrd[k].semana+'/'+semsOrd[k].ano;
-          const d  = ds[kk]&&ds[kk][eq];
-          if (!d) break;
-          const aAnt = d.prev ? Math.round(d.prevEnc/d.prev*100) : 0;
-          if (aAnt < 80) consec++; else break;
+        for (let ki = semIdx2 - 1; ki >= 0; ki--) {
+          const kk2  = semsOrd2[ki].semana+'/'+semsOrd2[ki].ano;
+          const dAnt = ds[kk2] && ds[kk2][eq];
+          if (!dAnt || !dAnt.prev) break;
+          const aAnt = Math.round(dAnt.prevEnc / dAnt.prev * 100);
+          if (aAnt < META) consec++; else break;
         }
-        let txt = '<strong>'+eq+'</strong>: aderência de <strong>'+a+'%</strong> — abaixo da meta de 80%';
-        if (consec >= 1) txt += ' — <strong>'+(consec+1)+' semanas consecutivas</strong>';
-        alertas.push({c:R,i:'ti-trending-down',t:txt});
+        if (consec >= 1) {
+          alertas.push({c:R, i:'ti-trending-down',
+            t: '<strong>'+eq+'</strong>: aderência de <strong>'+a+'%</strong>'
+             + ' — abaixo da meta de '+META+'%'
+             + ' — <strong>'+(consec+1)+' semanas consecutivas</strong>'});
+        }
       }
 
       /* Eficiência */
@@ -869,20 +872,21 @@ window.Modulos.prog_semanal = {
         if (!prog || !prog.length) return;
         const osNums = [...new Set(prog.map(p=>p.os))];
         const { data: osInt } = await db2.from('ordens_servico')
-          .select('os, status_os')
+          .select('os, status_os, desc_os, desc_servico, tipo_atividade')
           .in('os', osNums.slice(0,500))
           .in('status_os', ['3 - Interrompida','5 - Cancelada']);
         if (!osInt || !osInt.length) return;
         const alertasEl2 = document.getElementById('alertas-body');
         if (!alertasEl2) return;
         osInt.forEach(o => {
-          const p    = prog.find(x => x.os === o.os);
-          const desc = p ? (p.desc_servico||'').slice(0, 40) : '';
-          const cor  = o.status_os === '3 - Interrompida' ? '#d97706' : '#dc2626';
-          const ico  = o.status_os === '3 - Interrompida' ? 'ti-player-pause' : 'ti-ban';
+          /* Descrição: MCU usa desc_os, programável usa desc_servico */
+          const rawDesc = o.tipo_atividade === 'MCU' ? (o.desc_os||'') : (o.desc_servico||o.desc_os||'');
+          const desc    = rawDesc.slice(0, 50) + (rawDesc.length > 50 ? '…' : '');
+          const cor     = o.status_os === '3 - Interrompida' ? '#d97706' : '#dc2626';
+          const ico     = o.status_os === '3 - Interrompida' ? 'ti-player-pause' : 'ti-ban';
           alertasEl2.innerHTML += '<div style="display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px">'
             + '<i class="ti '+ico+'" style="font-size:16px;flex-shrink:0;margin-top:1px;color:'+cor+'"></i>'
-            + '<div>OS <strong>'+o.os+'</strong>'+(desc?' — '+desc.trim()+'…':'')+' — <strong>'+o.status_os+'</strong> (estava na Sem '+sNum+')</div></div>';
+            + '<div><strong>'+o.os+'</strong>'+(desc?' — '+desc:'')+' — <strong>'+o.status_os+'</strong> (Sem '+sNum+')</div></div>';
         });
       } catch(e) { console.warn('Alertas int/canc:', e); }
     })();
@@ -1168,7 +1172,7 @@ window.Modulos.prog_semanal = {
         html += '<tr style="border-bottom:1px solid var(--border);'+bg+'">';
         html += '<td style="padding:6px 6px;font-weight:700;color:#374151">'+r.os+'</td>';
         html += '<td style="padding:6px 6px;color:#6b7280;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+r.desc+'">'+descCurta+'</td>';
-        html += '<td style="padding:6px 6px;text-align:right;color:#374151;white-space:nowrap">'+(r.hhReal||'0')+'h</td>';
+        html += '<td style="padding:6px 6px;text-align:right;color:#374151;white-space:nowrap">'+( r.hhReal ? Math.round(r.hhReal*10)/10 : '0' )+'h</td>';
         html += '<td style="padding:6px 6px;text-align:right;font-weight:700;color:'+pctColor+';white-space:nowrap">'+pctTxt+'</td>';
         html += '</tr>';
       });
