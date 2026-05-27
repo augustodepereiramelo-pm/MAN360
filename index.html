@@ -211,23 +211,34 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
 .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
 .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--dark4); border-radius: 2px; }
 
+/* Cabeçalho de grupo — ícone sempre visível, label aparece ao expandir */
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.nav-group-header i {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+  color: var(--text-muted);
+}
 .nav-group-label {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--text-muted);
-  padding: 14px 14px 4px;
-  white-space: nowrap;
-  overflow: hidden;
   opacity: 0;
   transition: opacity var(--transition);
-  height: 0;
 }
 #sidebar:hover .nav-group-label,
 #sidebar.pinned .nav-group-label {
   opacity: 1;
-  height: auto;
 }
 
 .nav-item {
@@ -244,7 +255,7 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
   text-decoration: none;
   position: relative;
 }
-.nav-item:hover:not(.disabled) {
+.nav-item:hover:not(.wip) {
   background: rgba(255,255,255,.06);
   color: var(--text-light);
 }
@@ -260,8 +271,8 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
   background: var(--yellow);
   border-radius: 0 2px 2px 0;
 }
-.nav-item.disabled {
-  opacity: .35;
+.nav-item.wip {
+  opacity: .4;
   cursor: not-allowed;
 }
 .nav-item i {
@@ -275,6 +286,7 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
   font-weight: 500;
   opacity: 0;
   transition: opacity var(--transition);
+  flex: 1;
 }
 #sidebar:hover .nav-item-label,
 #sidebar.pinned .nav-item-label { opacity: 1; }
@@ -282,15 +294,32 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
 .nav-badge {
   margin-left: auto;
   font-size: 9px;
-  background: rgba(255,255,255,.1);
+  background: rgba(255,255,255,.08);
   color: var(--text-muted);
-  padding: 2px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
   opacity: 0;
   transition: opacity var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 #sidebar:hover .nav-badge,
 #sidebar.pinned .nav-badge { opacity: 1; }
+
+/* Tela Em construção */
+.wip-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  color: #9ca3af;
+  text-align: center;
+  gap: 12px;
+}
+.wip-screen i { font-size: 48px; color: #d1d5db; }
+.wip-screen h2 { font-size: 18px; font-weight: 600; color: #374151; margin: 0; }
+.wip-screen p  { font-size: 13px; margin: 0; max-width: 320px; line-height: 1.6; }
 
 /* ═══════════════════════════════════════════════
    CONTEÚDO PRINCIPAL
@@ -807,47 +836,67 @@ function montarNav() {
   container.innerHTML = '';
 
   MAN360_CONFIG.nav.forEach(grupo => {
-    const groupLabel = document.createElement('div');
-    groupLabel.className = 'nav-group-label';
-    groupLabel.textContent = grupo.group;
-    container.appendChild(groupLabel);
+    // Cabeçalho do grupo: ícone + label
+    const header = document.createElement('div');
+    header.className = 'nav-group-header';
+    header.innerHTML = `
+      <i class="ti ti-${grupo.icon}" aria-hidden="true"></i>
+      <span class="nav-group-label">${grupo.group}</span>
+    `;
+    container.appendChild(header);
 
     grupo.items.forEach(item => {
+      const isWip = item.status === 'wip';
       const el = document.createElement('div');
-      el.className = 'nav-item' + (item.disabled ? ' disabled' : '');
+      el.className = 'nav-item' + (isWip ? ' wip' : '');
       el.dataset.page = item.page;
       el.innerHTML = `
-        <i class="ti ti-${item.icon}"></i>
+        <i class="ti ti-${item.icon}" aria-hidden="true"></i>
         <span class="nav-item-label">${item.label}</span>
-        ${item.disabled ? '<span class="nav-badge">em breve</span>' : ''}
+        ${isWip ? '<span class="nav-badge">Em construção</span>' : ''}
       `;
-      if (!item.disabled) {
+      if (!isWip) {
         el.addEventListener('click', () => navegarPara(item));
+      } else {
+        el.addEventListener('click', () => mostrarWip(item));
       }
       container.appendChild(el);
     });
   });
 }
 
+/* ── Tela Em construção ── */
+function mostrarWip(item) {
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === item.page);
+  });
+  document.getElementById('topbar-icon').className = `ti ti-${item.icon}`;
+  document.getElementById('topbar-title').textContent = item.label.toUpperCase();
+  document.getElementById('module-loading').classList.remove('show');
+  document.getElementById('module-container').innerHTML = `
+    <div class="wip-screen">
+      <i class="ti ti-tools"></i>
+      <h2>Em construção</h2>
+      <p>O módulo <strong>${item.label}</strong> ainda está sendo desenvolvido e estará disponível em breve.</p>
+    </div>
+  `;
+}
+
 /* ── Roteador ── */
 async function navegarPara(item) {
-  // Atualizar estado da nav
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === item.page);
   });
 
-  // Atualizar topbar
   document.getElementById('topbar-icon').className = `ti ti-${item.icon}`;
   document.getElementById('topbar-title').textContent = item.label.toUpperCase();
 
-  // Mostrar loading
   const loading = document.getElementById('module-loading');
   const container = document.getElementById('module-container');
   loading.classList.add('show');
   container.innerHTML = '';
 
   try {
-    // Carregar módulo dinamicamente
     await carregarModulo(item.page);
   } catch(e) {
     container.innerHTML = `<div style="padding:40px;text-align:center;color:#9ca3af">
@@ -888,10 +937,10 @@ function exportarModulo() {
 /* ── Inicialização ── */
 window.addEventListener('load', () => {
   montarNav();
-  // Navegar para o primeiro módulo habilitado
+  // Navegar para o primeiro módulo ativo
   const primeiro = MAN360_CONFIG.nav
     .flatMap(g => g.items)
-    .find(i => !i.disabled);
+    .find(i => i.status === 'active');
   if (primeiro) navegarPara(primeiro);
 });
 </script>
