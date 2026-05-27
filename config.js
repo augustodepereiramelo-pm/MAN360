@@ -19,7 +19,7 @@ const MAN360_CONFIG = {
       icon: 'tool',
       items: [
         { label: 'Ordens de Serviço',        page: 'ordens_servico',    icon: 'clipboard-list',   status: 'wip' },
-        { label: 'Apontamentos',             page: 'apontamentos',      icon: 'clock-record',      status: 'wip' },
+        { label: 'Apontamentos',             page: 'apontamentos',      icon: 'clock-record',      status: 'active' },
       ],
     },
     {
