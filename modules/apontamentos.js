@@ -3,9 +3,9 @@
    ═══════════════════════════════════════════════════════════════ */
 (() => {
 
-/* ── Config ─────────────────────────────────────────────────── */
-const SB_URL = MAN360_CONFIG.supabase.url;
-const SB_KEY = MAN360_CONFIG.supabase.key;
+/* ── Config — lido de forma lazy para garantir que MAN360_CONFIG existe ── */
+const SB_URL = () => MAN360_CONFIG.supabase.url;
+const SB_KEY = () => MAN360_CONFIG.supabase.key;
 const META   = 0.75;  // 75% meta de aderência
 
 const SEM_ANCORA  = 9;
@@ -66,9 +66,10 @@ function gerarFolgas(escala,turno,pf,refPassada,dataIni,dataFim){
 
 /* ── Supabase ───────────────────────────────────────────────── */
 async function sb(path,opts={}){
+  const url=SB_URL(), key=SB_KEY();
   const pref=opts.prefer||(opts.method==='DELETE'?'return=minimal':'return=representation');
-  const res=await fetch(`${SB_URL}/rest/v1/${path}`,{
-    headers:{'apikey':SB_KEY,'Authorization':`Bearer ${SB_KEY}`,'Content-Type':'application/json','Prefer':pref,...(opts.headers||{})},
+  const res=await fetch(`${url}/rest/v1/${path}`,{
+    headers:{'apikey':key,'Authorization':`Bearer ${key}`,'Content-Type':'application/json','Prefer':pref,...(opts.headers||{})},
     ...opts
   });
   if(!res.ok) throw new Error(`SB ${res.status}: ${await res.text()}`);
@@ -195,23 +196,22 @@ function htmlFiltros(){
   let semItems='';
   for(let s=Math.max(1,semAtual()-7);s<=semFim;s++){
     const {ini,fim}=semParaDatas(s);
-    const isAt=s===semAtual(), isSel=S.semanas.includes(s);
+    const isAt=s===semAtual(),isSel=S.semanas.includes(s);
     semItems+=`<div class="dd-item"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;width:100%">
       <input type="checkbox" class="apt-sem-cb" value="${s}" ${isSel?'checked':''} style="accent-color:var(--yellow)">
       ${isAt?'<strong>':''}Sem ${s}${isAt?' ★':''} · ${fmtDM(ini)}–${fmtDM(fim)}${isAt?'</strong>':''}
     </label></div>`;
   }
-  const semLbl=()=>{
+  function semLbl(){
     if(!S.semanas.length) return 'Nenhuma';
     const sorted=[...S.semanas].sort((a,b)=>a-b);
     if(sorted.length===1){const{ini,fim}=semParaDatas(sorted[0]);return `Sem ${sorted[0]} · ${fmtDM(ini)}–${fmtDM(fim)}`;}
-    return `Sem ${sorted[0]}–${sorted[sorted.length-1]} (${sorted.length} semanas)`;
-  };
+    return `Sem ${sorted[0]}–${sorted[sorted.length-1]} (${sorted.length})`;
+  }
   const modLbl=S.modalidades.length===MODALIDADES.length?'Todas':S.modalidades.length===0?'Nenhuma':S.modalidades.join(', ');
 
   return `
-  <div class="filters-bar" style="margin-bottom:16px;flex-wrap:wrap;gap:10px;align-items:center">
-
+  <div class="filters-bar" style="margin-bottom:16px">
     <span class="filter-label">Safra</span>
     <div class="dd-wrap">
       <button class="dd-btn" onclick="toggleDD('dd-safra')">
@@ -226,7 +226,7 @@ function htmlFiltros(){
 
     <span class="filter-label">Semanas</span>
     <div class="dd-wrap">
-      <button class="dd-btn" onclick="toggleDD('dd-sem')" style="min-width:200px">
+      <button class="dd-btn" onclick="toggleDD('dd-sem')" style="min-width:180px">
         <i class="ti ti-calendar-week"></i>
         <span class="dd-label" id="lbl-sem">${semLbl()}</span>
         <i class="ti ti-chevron-down dd-arrow"></i>
@@ -240,9 +240,14 @@ function htmlFiltros(){
       </div>
     </div>
 
+    <span class="filter-label">ou</span>
+    <input type="date" id="apt-di" value="${S.dataIni}" class="dd-btn" style="cursor:text;font-family:var(--font);font-size:11px;width:120px">
+    <span style="color:var(--text-muted);font-size:12px">→</span>
+    <input type="date" id="apt-df" value="${S.dataFim}" class="dd-btn" style="cursor:text;font-family:var(--font);font-size:11px;width:120px">
+
     <span class="filter-label">Modalidade</span>
     <div class="dd-wrap">
-      <button class="dd-btn" onclick="toggleDD('dd-mod')" style="min-width:110px">
+      <button class="dd-btn" onclick="toggleDD('dd-mod')" style="min-width:100px">
         <i class="ti ti-tag"></i>
         <span class="dd-label" id="lbl-mod">${modLbl}</span>
         <i class="ti ti-chevron-down dd-arrow"></i>
@@ -260,28 +265,22 @@ function htmlFiltros(){
 
     <span class="filter-label">Colaborador</span>
     <div style="position:relative">
-      <div class="dd-btn" style="cursor:text;min-width:180px;padding:0;gap:0">
-        <i class="ti ti-search" style="padding:0 8px;color:#9ca3af"></i>
+      <div class="dd-btn" style="cursor:text;min-width:200px;padding:0;gap:0">
+        <i class="ti ti-search" style="padding:0 8px;color:var(--text-muted)"></i>
         <input type="text" id="apt-colab" placeholder="Nome ou crachá…"
           style="border:none;background:transparent;outline:none;font-family:var(--font);font-size:11px;color:#374151;flex:1;height:30px;padding-right:8px">
       </div>
-      <div id="apt-colab-drop" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:260px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);z-index:300;max-height:200px;overflow-y:auto"></div>
+      <div id="apt-colab-drop" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:280px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);z-index:300;max-height:200px;overflow-y:auto"></div>
     </div>
 
-    <span class="filter-label" id="lbl-ou" style="color:#9ca3af;font-size:10px">ou</span>
-    <div style="display:flex;align-items:center;gap:4px">
-      <input type="date" id="apt-di" value="${S.dataIni}" class="dd-btn" style="cursor:text;font-family:var(--font);font-size:11px;width:130px">
-      <span style="color:#9ca3af;font-size:11px">→</span>
-      <input type="date" id="apt-df" value="${S.dataFim}" class="dd-btn" style="cursor:text;font-family:var(--font);font-size:11px;width:130px">
-    </div>
-
-    <button id="apt-btn-filtrar" class="dd-action-btn primary" style="height:30px;padding:0 14px;font-family:var(--font);display:inline-flex;align-items:center;gap:5px">
+    <button id="apt-btn-filtrar" class="topbar-btn" style="background:var(--yellow);color:var(--dark1);border:none;height:30px;padding:0 12px;font-family:var(--font);font-size:11px;font-weight:600;border-radius:var(--radius-sm);cursor:pointer;display:inline-flex;align-items:center;gap:5px">
       <i class="ti ti-search"></i> Filtrar
     </button>
-    <button id="apt-btn-limpar" class="dd-action-btn secondary" style="height:30px;padding:0 12px;font-family:var(--font);display:inline-flex;align-items:center;gap:5px">
+    <button id="apt-btn-limpar" class="topbar-btn" style="height:30px;padding:0 10px;font-family:var(--font);font-size:11px;border-radius:var(--radius-sm);cursor:pointer;display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--border);color:var(--text)">
       <i class="ti ti-x"></i> Limpar
     </button>
   </div>`;}
+
 
 function atualizarLblSem(){
   const el=document.getElementById('lbl-sem'); if(!el) return;
