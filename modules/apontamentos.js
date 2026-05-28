@@ -486,10 +486,12 @@ window.Modulos.apontamentos = {
     let totPrev=0, totApt=0, ausencias=[], baixos=[];
     cf.forEach(c => {
       dias.forEach(dia => {
-        if (dia>hj) return;
         const esp = hhEsp(c,dia);
         if (esp===0||ehFolga(c,dia)||deFerias(c.cracha,dia)||getJust(c.cracha,dia)) return;
+        // H-H previsto: todos os dias (passado + futuro)
         totPrev += esp;
+        // Aderência, ausências e baixo: só dias passados/hoje
+        if (dia>hj) return;
         const hh = hhDia(c.cracha,dia);
         totApt += hh;
         if (hh===0) ausencias.push({colab:c,dia});
@@ -502,7 +504,7 @@ window.Modulos.apontamentos = {
     const elM = document.getElementById('apt-metricas');
     if (elM) elM.innerHTML = [
       {l:'H-H previsto',             v:totPrev.toFixed(1)+'h', s:'Baseado no turno cadastrado',  c:'var(--yellow)'},
-      {l:'Aderência ao apontamento', v:ader+'%',               s:'H-H apontado / H-H disponível',c:corAder},
+      {l:'Aderência ao apontamento', v:ader+'%',               s:'H-H apontado / H-H disponível (dias passados)',c:corAder},
       {l:'Ausência de apontamento',  v:ausencias.length,       s:'Dias sem registro',             c:ausencias.length>0?'var(--red)':'#374151'},
       {l:'Baixo apontamento',        v:baixos.length,          s:'Dias abaixo de 50% do esperado',c:baixos.length>0?'var(--amber)':'#374151'},
     ].map(({l,v,s:sub,c})=>`<div class="metric"><div class="m-label">${l}</div><div class="m-val" style="color:${c}">${v}</div><div class="m-sub">${sub}</div></div>`).join('');
@@ -625,11 +627,13 @@ window.Modulos.apontamentos = {
     const dias = todosDias.slice(pag*PPG, (pag+1)*PPG);
 
     const cellBg = (c,dia) => {
-      if (dia>hj) return {bg:'#93c5fd',fg:'#1e3a8a',lbl:''};
+      // Férias e folgas têm prioridade mesmo em dias futuros
       if (deFerias(c.cracha,dia)) return {bg:'#60a5fa',fg:'#1e3a8a',lbl:'F'};
+      if (ehFolga(c,dia))         return {bg:'#9ca3af',fg:'#f9fafb',lbl:''};
+      // Dias futuros sem folga = disponível
+      if (dia>hj) return {bg:'#93c5fd',fg:'#1e3a8a',lbl:''};
       const just = getJust(c.cracha,dia);
       if (just) return {bg:'#fbbf24',fg:'#78350f',lbl:just.tratativa?.substring(0,1)||'J'};
-      if (ehFolga(c,dia)) return {bg:'#9ca3af',fg:'#f9fafb',lbl:''};
       const hh=hhDia(c.cracha,dia), esp=hhEsp(c,dia);
       if (esp===0) return {bg:'#e5e7eb',fg:'#6b7280',lbl:''};
       if (hh===0)  return {bg:'#f87171',fg:'#7f1d1d',lbl:''};
