@@ -1,72 +1,65 @@
 /* ═══════════════════════════════════════════════════════════════
-   MAN360 — Módulo Apontamentos  v4
+   MAN360 — Módulo Apontamentos  v5
    ═══════════════════════════════════════════════════════════════ */
 (() => {
 
 /* ── Config ─────────────────────────────────────────────────── */
 const SB_URL = MAN360_CONFIG.supabase.url;
 const SB_KEY = MAN360_CONFIG.supabase.key;
-const META   = 0.75;   // 75% — meta global de aderência
+const META   = 0.75;  // 75% meta de aderência
 
 const SEM_ANCORA  = 9;
 const DATA_ANCORA = '2026-05-25';
 const SAFRA_ATUAL = '2026/27';
 const SAFRAS      = ['2024/25','2025/26','2026/27'];
 const MODALIDADES = ['MEC','CAL','ELE','CIV','INS','AUT','ISP'];
-const TURNOS      = ['ADM','A','B','C'];
 
 /* ── Helpers de data ────────────────────────────────────────── */
 function addDays(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
 const hoje    = () => new Date().toISOString().slice(0,10);
+const amanha  = () => addDays(hoje(),1);
 const fmtDM   = iso => { const[,m,d]=iso.split('-'); return `${d}/${m}`; };
 const fmtFull = iso => { const[y,m,d]=iso.split('-'); return `${d}/${m}/${y}`; };
 const diaSem  = iso => ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date(iso+'T00:00:00').getDay()];
-const diaSemN = iso => new Date(iso+'T00:00:00').getDay(); // 0=Dom,5=Sex,6=Sáb
+const diaSemN = iso => new Date(iso+'T00:00:00').getDay();
 function diasEntre(a,b){ const r=[]; let c=a; while(c<=b){r.push(c);c=addDays(c,1);} return r; }
 function semParaDatas(s){ const i=addDays(DATA_ANCORA,(s-SEM_ANCORA)*7); return {ini:i,fim:addDays(i,6)}; }
 function semAtual(){ const ms0=new Date(DATA_ANCORA+'T00:00:00').getTime(),ms1=new Date(hoje()+'T00:00:00').getTime(); return SEM_ANCORA+Math.floor((ms1-ms0)/604800000); }
 
-/* ── HH esperado por escala e dia ── */
-function hhEscala(esc, iso){
-  if(!esc) return 8;
-  if(esc.tipo_ciclo==='ADM'){
-    const dw=diaSemN(iso);
-    if(dw===0||dw===6) return 0; // fim de semana
-    // Sexta com saída diferente
-    if(dw===5 && esc.saida_sexta){
-      return calcHH(esc.hora_entrada, esc.saida_sexta, esc.intervalo_min);
-    }
-    return calcHH(esc.hora_entrada, esc.hora_saida, esc.intervalo_min);
-  }
-  return calcHH(esc.hora_entrada, esc.hora_saida, esc.intervalo_min);
-}
-function calcHH(entrada, saida, intervalo){
+/* ── HH esperado pelo turno e dia ── */
+function calcHH(entrada,saida,intervalo){
   const [eh,em]=entrada.split(':').map(Number);
   const [sh,sm]=saida.split(':').map(Number);
-  let mins = (sh*60+sm) - (eh*60+em);
-  if(mins<=0) mins+=1440; // cruza meia-noite (turno C)
+  let mins=(sh*60+sm)-(eh*60+em);
+  if(mins<=0) mins+=1440; // turno C cruza meia-noite
   return Math.round((mins-intervalo)/60*100)/100;
 }
+function hhTurno(turno,iso){
+  if(!turno) return 8;
+  if(turno.nome==='ADM'){
+    const dw=diaSemN(iso);
+    if(dw===0||dw===6) return 0;
+    if(dw===5&&turno.saida_sexta) return calcHH(turno.hora_entrada,turno.saida_sexta,turno.intervalo_min);
+    return calcHH(turno.hora_entrada,turno.hora_saida,turno.intervalo_min);
+  }
+  return calcHH(turno.hora_entrada,turno.hora_saida,turno.intervalo_min);
+}
 
-/* ── Folgas ── */
-function gerarFolgas(esc, pf, refPassada, dataIni, dataFim){
-  if(!esc||!pf) return new Set();
-  if(esc.tipo_ciclo==='ADM'){
-    // ADM: sáb e dom
-    const s=new Set();
-    let c=dataIni;
+/* ── Folgas (baseado na escala = ciclo) ── */
+function gerarFolgas(escala,turno,pf,refPassada,dataIni,dataFim){
+  if(!escala) return new Set();
+  if(escala.tipo_ciclo==='ADM'||turno?.nome==='ADM'){
+    const s=new Set(); let c=dataIni;
     while(c<=dataFim){ const dw=diaSemN(c); if(dw===0||dw===6) s.add(c); c=addDays(c,1); }
     return s;
   }
-  // Rotativo: ciclo = dias_trabalho + 1 (folga)
-  const ciclo = (esc.dias_trabalho||5) + 1;
+  if(!pf&&!refPassada) return new Set();
+  const ciclo=(escala.dias_trabalho||5)+1;
+  const ancora=refPassada||pf;
   const s=new Set();
-  // Âncora: usar refPassada se existir, senão pf
-  const ancora = refPassada || pf;
-  // Projetar para frente e trás a partir da âncora
-  let c = ancora;
+  let c=ancora;
   while(c<=dataFim){ s.add(c); c=addDays(c,ciclo); }
-  c = addDays(ancora,-ciclo);
+  c=addDays(ancora,-ciclo);
   while(c>=dataIni){ s.add(c); c=addDays(c,-ciclo); }
   return s;
 }
@@ -83,19 +76,28 @@ async function sb(path,opts={}){
 }
 
 /* ── Estado ─────────────────────────────────────────────────── */
-const semI=semAtual(), {ini:dI,fim:dF}=semParaDatas(semI);
+const semI=semAtual();
+const semAnterior=semI-1;
+const {ini:dI,fim:dF}=(() => {
+  const ini=semParaDatas(semAnterior).ini;
+  const fim=semParaDatas(semI).fim;
+  return {ini,fim};
+})();
+
 const S={
-  safra:SAFRA_ATUAL, semana:semI, periodoTipo:'semana',
+  safra:SAFRA_ATUAL,
+  semanas:[semAnterior,semI],  // múltiplas semanas
+  periodoTipo:'semana',
   dataIni:dI, dataFim:dF,
   modalidades:[...MODALIDADES], colabChapa:null,
-  apontamentos:[], colaboradores:[], escalas:[],
+  apontamentos:[], colaboradores:[], escalas:[], turnos:[],
   especialidades:[], justificativas:[], ferias:[],
-  hmPag:0, tabelaAberta:false,
+  hmPag:0, tabelaAberta:false, pontosAberto:false,
   aba:'principal', cadAba:'colab',
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   CSS injetado uma única vez
+   CSS
    ═══════════════════════════════════════════════════════════════ */
 function injetarCSS(){
   if(document.getElementById('apt-css')) return;
@@ -103,27 +105,26 @@ function injetarCSS(){
   s.textContent=`
     .apt-tab{padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;color:#6b7280;transition:all .15s;display:inline-flex;align-items:center;gap:6px;letter-spacing:.02em;white-space:nowrap}
     .apt-tab.on{color:var(--yellow);border-bottom-color:var(--yellow)}
-    .apt-tab i{font-size:14px}
-    .apt-hm-cell{height:26px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;cursor:pointer;transition:opacity .1s;border:1px solid rgba(0,0,0,.06)}
-    .apt-hm-cell:hover{opacity:.8;transform:scale(1.05)}
+    .apt-hm-cell{height:26px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;cursor:pointer;transition:opacity .1s;border:1px solid rgba(0,0,0,.07)}
+    .apt-hm-cell:hover{opacity:.8;transform:scale(1.08)}
     .apt-turno-hdr{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4b5563;padding:10px 0 4px;display:flex;align-items:center;gap:8px;grid-column:1/-1}
     .apt-turno-hdr::after{content:'';flex:1;height:1px;background:var(--border)}
     .apt-incompleto{font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:10px;letter-spacing:.04em}
     .apt-attn-row{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:12px}
     .apt-attn-row:last-child{border-bottom:none}
-    .f-lbl{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;white-space:nowrap}
     .apt-input{width:100%;height:32px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card-bg);padding:0 10px;font-family:var(--font);font-size:12px;outline:none;transition:border-color .15s}
     .apt-input:focus{border-color:var(--yellow);box-shadow:0 0 0 2px rgba(248,193,0,.15)}
     .apt-select{width:100%;height:32px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card-bg);padding:0 8px;font-family:var(--font);font-size:12px;outline:none;cursor:pointer}
     .apt-select:focus{border-color:var(--yellow)}
     .apt-field{display:flex;flex-direction:column;gap:4px;flex:1;min-width:100px}
     .apt-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-    .apt-modal-body{font-family:var(--font)}
+    .apt-icon-btn{height:26px;width:26px;padding:0;font-family:var(--font);border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card-bg);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;color:#6b7280;font-size:13px;transition:background .15s}
+    .apt-icon-btn:hover{background:var(--bg)}
+    .apt-sem-cb:checked+label{background:#fffbeb;border-color:var(--yellow);color:#92400e;font-weight:600}
     @media(max-width:768px){
       .apt-filters-grid{flex-direction:column!important}
       .metrics-row{grid-template-columns:1fr 1fr!important}
       .apt-hm-cell{height:22px;font-size:8px}
-      .apt-tbl-wrap{font-size:11px}
     }
   `;
   document.head.appendChild(s);
@@ -158,18 +159,20 @@ async function renderContent(){
   const el=document.getElementById('apt-content');
   if(!el) return;
   if(S.aba==='principal'){
-    // Carregar colaboradores e escalas primeiro
-    await Promise.all([carregarColabs(), carregarEscalas()]);
+    await Promise.all([carregarColabs(),carregarEscalas(),carregarTurnos()]);
+    // Montar HTML ANTES de chamar bind
     el.innerHTML=htmlFiltros()+`
       <div id="apt-metricas" class="metrics-row" style="margin-bottom:12px"></div>
-      <div id="apt-pontos" class="card" style="margin-bottom:12px;display:none"></div>
+      <div id="apt-quadro" style="margin-bottom:12px"></div>
+      <div id="apt-pontos" style="margin-bottom:12px"></div>
       <div id="apt-heatmap" class="card" style="margin-bottom:12px;display:none"></div>
       <div id="apt-tabela" class="card" style="margin-bottom:12px;display:none"></div>
       <div id="apt-importar">${htmlImportador()}</div>`;
     bindFiltros();
+    bindImportador();
     carregarDados();
   } else {
-    await Promise.all([carregarColabs(), carregarEscalas()]);
+    await Promise.all([carregarColabs(),carregarEscalas(),carregarTurnos()]);
     el.innerHTML=htmlCadastro();
     bindCadastro();
     carregarCadastro();
@@ -179,24 +182,32 @@ async function renderContent(){
 /* ═══════════════════════════════════════════════════════════════
    FILTROS
    ═══════════════════════════════════════════════════════════════ */
+function recalcPeriodo(){
+  if(S.semanas.length===0) return;
+  const sorted=[...S.semanas].sort((a,b)=>a-b);
+  S.dataIni=semParaDatas(sorted[0]).ini;
+  S.dataFim=semParaDatas(sorted[sorted.length-1]).fim;
+}
+
 function htmlFiltros(){
   const semFim=semAtual()+8;
-  const semOpts=[];
-  for(let s=1;s<=semFim;s++){
+  // Gerar chips de semana — últimas 8 + próximas 8
+  let semChips='';
+  for(let s=Math.max(1,semAtual()-7);s<=semFim;s++){
     const {ini,fim}=semParaDatas(s);
-    const isAt=s===semAtual();
-    semOpts.push(`<div class="dd-item apt-sem-item" data-val="${s}" data-ini="${ini}" data-fim="${fim}">
-      ${s===S.semana?'<i class="ti ti-check" style="color:var(--yellow);font-size:12px"></i>':'<span style="width:16px;display:inline-block"></span>'}
-      ${isAt?`<strong>Sem ${s} (atual)</strong>`:`Sem ${s}`} · ${fmtDM(ini)}–${fmtDM(fim)}
-    </div>`);
+    const isAt=s===semAtual(), isSel=S.semanas.includes(s);
+    semChips+=`<label style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border:1px solid ${isSel?'var(--yellow)':'var(--border)'};border-radius:20px;background:${isSel?'#fffbeb':'var(--card-bg)'};font-size:10px;font-weight:${isSel?'700':'500'};color:${isSel?'#92400e':'#374151'};cursor:pointer;white-space:nowrap;transition:all .15s">
+      <input type="checkbox" class="apt-sem-chk" value="${s}" ${isSel?'checked':''} style="display:none">
+      ${isAt?'★ ':''}Sem ${s} · ${fmtDM(ini)}–${fmtDM(fim)}
+    </label>`;
   }
-  const semLbl=()=>{const{ini,fim}=semParaDatas(S.semana);return `Sem ${S.semana}${S.semana===semAtual()?' (atual)':''} · ${fmtDM(ini)}–${fmtDM(fim)}`;};
   const modLbl=S.modalidades.length===MODALIDADES.length?'Todas':S.modalidades.length===0?'Nenhuma':S.modalidades.join(', ');
 
   return `
-  <div class="filters-bar apt-filters-grid" style="margin-bottom:16px;flex-wrap:wrap;gap:10px;align-items:flex-end">
-    <div style="display:flex;align-items:center;gap:6px">
-      <span class="f-lbl">Safra</span>
+  <div class="filters-bar apt-filters-grid" style="margin-bottom:16px;flex-wrap:wrap;gap:10px;align-items:flex-start">
+
+    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+      <span class="filter-label">Safra</span>
       <div class="dd-wrap">
         <button class="dd-btn" onclick="toggleDD('dd-safra')">
           <i class="ti ti-calendar"></i>
@@ -209,38 +220,17 @@ function htmlFiltros(){
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span class="f-lbl">Período</span>
-      <label style="font-size:11px;color:#374151;cursor:pointer;display:flex;align-items:center;gap:4px">
-        <input type="radio" name="apt-ptipo" value="semana" ${S.periodoTipo==='semana'?'checked':''}> Semana
-      </label>
-      <label style="font-size:11px;color:#374151;cursor:pointer;display:flex;align-items:center;gap:4px">
-        <input type="radio" name="apt-ptipo" value="intervalo" ${S.periodoTipo==='intervalo'?'checked':''}> Intervalo
-      </label>
-      <!-- bloco de período com altura fixa para não mover filtros -->
-      <div style="min-width:220px">
-        <div id="apt-per-sem" style="display:${S.periodoTipo==='semana'?'block':'none'}">
-          <div class="dd-wrap">
-            <button class="dd-btn" onclick="toggleDD('dd-sem')" style="min-width:220px">
-              <i class="ti ti-calendar-week"></i>
-              <span class="dd-label" id="lbl-sem">${semLbl()}</span>
-              <i class="ti ti-chevron-down dd-arrow"></i>
-            </button>
-            <div class="dd-panel" id="dd-sem" style="max-height:240px;overflow-y:auto;min-width:260px">
-              ${semOpts.join('')}
-            </div>
-          </div>
-        </div>
-        <div id="apt-per-int" style="display:${S.periodoTipo==='intervalo'?'flex':'none'};gap:6px;align-items:center;height:32px">
-          <input type="date" id="apt-di" value="${S.dataIni}" class="dd-btn" style="cursor:text;font-family:var(--font);width:130px">
-          <span style="color:#9ca3af;font-size:12px">→</span>
-          <input type="date" id="apt-df" value="${S.dataFim}" class="dd-btn" style="cursor:text;font-family:var(--font);width:130px">
-        </div>
+    <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:280px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="filter-label">Semanas</span>
+        <button id="apt-sem-todas" class="dd-action-btn secondary" style="height:22px;padding:0 8px;font-size:10px;font-family:var(--font)">Limpar</button>
       </div>
+      <div id="apt-sem-chips" style="display:flex;gap:5px;flex-wrap:wrap">${semChips}</div>
+      <div style="font-size:10px;color:#9ca3af">Clique para selecionar/desmarcar · Período: <span id="apt-per-label">${fmtFull(S.dataIni)} – ${fmtFull(S.dataFim)}</span></div>
     </div>
 
-    <div style="display:flex;align-items:center;gap:6px">
-      <span class="f-lbl">Modalidade</span>
+    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+      <span class="filter-label">Modalidade</span>
       <div class="dd-wrap">
         <button class="dd-btn" onclick="toggleDD('dd-mod')" style="min-width:110px">
           <i class="ti ti-tag"></i>
@@ -259,8 +249,8 @@ function htmlFiltros(){
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;gap:6px">
-      <span class="f-lbl">Colaborador</span>
+    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+      <span class="filter-label">Colaborador</span>
       <div style="position:relative">
         <div class="dd-btn" style="cursor:text;min-width:180px;padding:0;gap:0">
           <i class="ti ti-search" style="padding:0 8px;color:#9ca3af"></i>
@@ -271,11 +261,11 @@ function htmlFiltros(){
       </div>
     </div>
 
-    <div style="display:flex;gap:6px">
-      <button id="apt-btn-filtrar" class="dd-action-btn primary" style="height:30px;padding:0 16px;font-family:var(--font)">
+    <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+      <button id="apt-btn-filtrar" class="dd-action-btn primary" style="height:30px;padding:0 14px;font-family:var(--font);display:flex;align-items:center;gap:5px">
         <i class="ti ti-search"></i> Filtrar
       </button>
-      <button id="apt-btn-limpar" class="dd-action-btn secondary" style="height:30px;padding:0 12px;font-family:var(--font)">
+      <button id="apt-btn-limpar" class="dd-action-btn secondary" style="height:30px;padding:0 12px;font-family:var(--font);display:flex;align-items:center;gap:5px">
         <i class="ti ti-x"></i> Limpar
       </button>
     </div>
@@ -283,23 +273,45 @@ function htmlFiltros(){
 }
 
 function bindFiltros(){
-  document.querySelectorAll('input[name="apt-ptipo"]').forEach(r=>r.addEventListener('change',()=>{
-    S.periodoTipo=r.value;
-    document.getElementById('apt-per-sem').style.display=r.value==='semana'?'block':'none';
-    document.getElementById('apt-per-int').style.display=r.value==='intervalo'?'flex':'none';
-  }));
+  // Safra
   document.querySelectorAll('.apt-safra-item').forEach(el=>el.addEventListener('click',()=>{
     S.safra=el.dataset.val;
     document.getElementById('lbl-safra').textContent=S.safra;
     document.getElementById('dd-safra').classList.remove('show');
   }));
-  document.querySelectorAll('.apt-sem-item').forEach(el=>el.addEventListener('click',()=>{
-    S.semana=parseInt(el.dataset.val); S.dataIni=el.dataset.ini; S.dataFim=el.dataset.fim;
-    document.getElementById('lbl-sem').textContent=`Sem ${S.semana}${S.semana===semAtual()?' (atual)':''} · ${fmtDM(S.dataIni)}–${fmtDM(S.dataFim)}`;
-    document.getElementById('dd-sem').classList.remove('show');
-  }));
-  document.getElementById('apt-di')?.addEventListener('change',e=>S.dataIni=e.target.value);
-  document.getElementById('apt-df')?.addEventListener('change',e=>S.dataFim=e.target.value);
+
+  // Semanas — chips checkbox
+  document.getElementById('apt-sem-chips').addEventListener('change',e=>{
+    if(!e.target.classList.contains('apt-sem-chk')) return;
+    const s=parseInt(e.target.value);
+    if(e.target.checked){ if(!S.semanas.includes(s)) S.semanas.push(s); }
+    else S.semanas=S.semanas.filter(x=>x!==s);
+    recalcPeriodo();
+    // Atualizar label e estilo do chip
+    const lbl=e.target.closest('label');
+    if(lbl){
+      lbl.style.borderColor=e.target.checked?'var(--yellow)':'var(--border)';
+      lbl.style.background=e.target.checked?'#fffbeb':'var(--card-bg)';
+      lbl.style.color=e.target.checked?'#92400e':'#374151';
+      lbl.style.fontWeight=e.target.checked?'700':'500';
+    }
+    const pl=document.getElementById('apt-per-label');
+    if(pl) pl.textContent=S.semanas.length?`${fmtFull(S.dataIni)} – ${fmtFull(S.dataFim)}`:'Nenhuma semana selecionada';
+  });
+
+  document.getElementById('apt-sem-todas').addEventListener('click',()=>{
+    S.semanas=[];
+    document.querySelectorAll('.apt-sem-chk').forEach(cb=>{
+      cb.checked=false;
+      const lbl=cb.closest('label');
+      if(lbl){lbl.style.borderColor='var(--border)';lbl.style.background='var(--card-bg)';lbl.style.color='#374151';lbl.style.fontWeight='500';}
+    });
+    recalcPeriodo();
+    const pl=document.getElementById('apt-per-label');
+    if(pl) pl.textContent='Nenhuma semana selecionada';
+  });
+
+  // Modalidade
   document.getElementById('apt-mod-todas').addEventListener('click',()=>{
     S.modalidades=[...MODALIDADES];
     document.querySelectorAll('.apt-mod-cb').forEach(cb=>cb.checked=true);
@@ -311,13 +323,14 @@ function bindFiltros(){
     document.getElementById('lbl-mod').textContent='Nenhuma';
   });
   document.getElementById('dd-mod').addEventListener('change',e=>{
-    if(e.target.classList.contains('apt-mod-cb')){
-      if(e.target.checked) S.modalidades.push(e.target.value);
-      else S.modalidades=S.modalidades.filter(m=>m!==e.target.value);
-      const l=S.modalidades.length===MODALIDADES.length?'Todas':S.modalidades.length===0?'Nenhuma':S.modalidades.join(', ');
-      document.getElementById('lbl-mod').textContent=l;
-    }
+    if(!e.target.classList.contains('apt-mod-cb')) return;
+    if(e.target.checked) S.modalidades.push(e.target.value);
+    else S.modalidades=S.modalidades.filter(m=>m!==e.target.value);
+    const l=S.modalidades.length===MODALIDADES.length?'Todas':S.modalidades.length===0?'Nenhuma':S.modalidades.join(', ');
+    document.getElementById('lbl-mod').textContent=l;
   });
+
+  // Colaborador busca
   const inp=document.getElementById('apt-colab'), drop=document.getElementById('apt-colab-drop');
   inp.addEventListener('input',()=>{
     const q=inp.value.trim().toLowerCase();
@@ -337,11 +350,9 @@ function bindFiltros(){
       drop.style.display='none';
     }));
   });
-  document.addEventListener('click',e=>{if(!drop.contains(e.target)&&e.target!==inp)drop.style.display='none';});
-  document.getElementById('apt-btn-filtrar').addEventListener('click',()=>{
-    if(S.periodoTipo==='semana'){const{ini,fim}=semParaDatas(S.semana);S.dataIni=ini;S.dataFim=fim;}
-    S.hmPag=0; carregarDados();
-  });
+  document.addEventListener('click',e=>{if(!drop.contains(e.target)&&e.target!==inp) drop.style.display='none';});
+
+  document.getElementById('apt-btn-filtrar').addEventListener('click',()=>{ S.hmPag=0; carregarDados(); });
   document.getElementById('apt-btn-limpar').addEventListener('click',()=>{
     S.colabChapa=null; S.modalidades=[...MODALIDADES];
     inp.value='';
@@ -351,26 +362,33 @@ function bindFiltros(){
   });
 }
 
-/* ── Colaborador completo: modalidade + turno + escala_id ── */
-function completo(c){ return !!(c.modalidade && c.turno && c.escala_id); }
+/* ── Colaborador completo ── */
+function completo(c){ return !!(c.modalidade&&c.turno_id&&c.escala_id); }
+function turnoDe(c){ return S.turnos.find(t=>t.id===c.turno_id)||null; }
+function escalaDe(c){ return S.escalas.find(e=>e.id===c.escala_id)||null; }
 
 /* ═══════════════════════════════════════════════════════════════
    CARREGAR
    ═══════════════════════════════════════════════════════════════ */
 async function carregarColabs(){ try{ S.colaboradores=await sb('apt_colaboradores?order=nome.asc'); }catch(e){ S.colaboradores=[]; } }
 async function carregarEscalas(){ try{ S.escalas=await sb('apt_escalas?order=nome.asc'); }catch(e){ S.escalas=[]; } }
+async function carregarTurnos(){ try{ S.turnos=await sb('apt_turnos?order=nome.asc'); }catch(e){ S.turnos=[]; } }
 
 async function carregarDados(){
   const elM=document.getElementById('apt-metricas');
+  const elQ=document.getElementById('apt-quadro');
   const elP=document.getElementById('apt-pontos');
   const elH=document.getElementById('apt-heatmap');
   const elT=document.getElementById('apt-tabela');
-  const elI=document.getElementById('apt-importar');
   if(!elM) return;
 
-  // Skeleton
+  if(!S.semanas.length){
+    elM.innerHTML=`<div class="card" style="grid-column:1/-1;text-align:center;padding:24px;color:#9ca3af;font-size:12px">Selecione ao menos uma semana.</div>`;
+    [elQ,elP,elH,elT].forEach(el=>{if(el){el.style.display='none';el.innerHTML='';}});
+    return;
+  }
+
   elM.innerHTML=[1,2,3,4].map(()=>`<div class="metric"><div style="height:10px;background:#f3f4f6;border-radius:4px;width:60%;margin-bottom:10px"></div><div style="height:24px;background:#f3f4f6;border-radius:4px;width:40%"></div></div>`).join('');
-  [elP,elH,elT].forEach(el=>{if(el){el.style.display='block';el.innerHTML='<div style="height:60px;background:#f9fafb;border-radius:6px"></div>';}});
 
   try {
     let cf=S.colaboradores.filter(completo);
@@ -378,13 +396,11 @@ async function carregarDados(){
     else if(S.modalidades.length) cf=cf.filter(c=>S.modalidades.includes(c.modalidade));
 
     if(!cf.length){
-      elM.innerHTML='';
-      [elP,elH,elT].forEach(el=>{if(el)el.style.display='none';});
-      if(elM) elM.innerHTML=`<div class="card" style="grid-column:1/-1;text-align:center;padding:40px;color:#9ca3af">
+      elM.innerHTML=`<div class="card" style="grid-column:1/-1;text-align:center;padding:40px;color:#9ca3af">
         <i class="ti ti-user-off" style="font-size:32px;display:block;margin-bottom:8px;color:#e5e7eb"></i>
-        <p style="margin:0;font-size:12px">Nenhum colaborador <strong>configurado completamente</strong> para os filtros.<br>
-        Complete modalidade, turno e escala no <span style="color:var(--blue);cursor:pointer;text-decoration:underline" id="apt-ir-cad">Cadastro</span>.</p>
+        <p style="margin:0;font-size:12px">Nenhum colaborador configurado. <span style="color:var(--blue);cursor:pointer;text-decoration:underline" id="apt-ir-cad">Ir para Cadastro</span></p>
       </div>`;
+      [elQ,elP,elH,elT].forEach(el=>{if(el){el.style.display='none';el.innerHTML='';}});
       document.getElementById('apt-ir-cad')?.addEventListener('click',()=>setAba('cadastro'));
       return;
     }
@@ -400,7 +416,7 @@ async function carregarDados(){
   } catch(e){
     console.error(e);
     showToast('Erro ao carregar: '+e.message,'erro');
-    [elP,elH,elT].forEach(el=>{if(el)el.style.display='none';});
+    [elQ,elP,elH,elT].forEach(el=>{if(el){el.style.display='none';el.innerHTML='';}});
   }
 }
 
@@ -408,92 +424,165 @@ async function carregarDados(){
    RENDER DADOS
    ═══════════════════════════════════════════════════════════════ */
 function renderDados(cf){
-  const hj=hoje();
+  const hj=hoje(), am=amanha();
   const dias=diasEntre(S.dataIni,S.dataFim);
 
-  function escDe(c){ return S.escalas.find(e=>e.id===c.escala_id)||null; }
-  function hhDia(ch,dia){ return S.apontamentos.filter(a=>String(a.chapa)===String(ch)&&a.data_apontamento===dia).reduce((s,a)=>s+parseFloat(String(a.hh_total||0).replace(',','.'))||0,0); }
-  function ehFolga(c,dia){
-    const esc=escDe(c);
-    if(!esc) return false;
-    return gerarFolgas(esc, c.primeira_folga, c.data_ref_folga, S.dataIni, S.dataFim).has(dia);
-  }
-  function deFerias(ch,dia){ return S.ferias.some(f=>String(f.chapa)===String(ch)&&f.data_inicio<=dia&&f.data_fim>=dia); }
-  function getJust(ch,dia){ return S.justificativas.find(j=>String(j.chapa)===String(ch)&&j.data_inicio<=dia&&j.data_fim>=dia)||null; }
-  function hhEsp(c,dia){ const esc=escDe(c); return esc?hhEscala(esc,dia):8; }
+  const hhDia=(ch,dia)=>S.apontamentos.filter(a=>String(a.chapa)===String(ch)&&a.data_apontamento===dia).reduce((s,a)=>s+parseFloat(String(a.hh_total||0).replace(',','.'))||0,0);
+  const ehFolga=(c,dia)=>gerarFolgas(escalaDe(c),turnoDe(c),c.primeira_folga,c.data_ref_folga,S.dataIni,S.dataFim).has(dia);
+  const deFerias=(ch,dia)=>S.ferias.some(f=>String(f.chapa)===String(ch)&&f.data_inicio<=dia&&f.data_fim>=dia);
+  const getJust=(ch,dia)=>S.justificativas.find(j=>String(j.chapa)===String(ch)&&j.data_inicio<=dia&&j.data_fim>=dia)||null;
+  const hhEsp=(c,dia)=>hhTurno(turnoDe(c),dia);
 
-  // Métricas — só dias passados/hoje
+  // Métricas
   let totPrev=0,totApt=0,ausencias=[],baixos=[];
   cf.forEach(c=>{
     dias.forEach(dia=>{
       if(dia>hj) return;
       const esp=hhEsp(c,dia);
       if(esp===0||ehFolga(c,dia)||deFerias(c.cracha,dia)||getJust(c.cracha,dia)) return;
-      totPrev+=esp;
-      const hh=hhDia(c.cracha,dia);
-      totApt+=hh;
+      totPrev+=esp; const hh=hhDia(c.cracha,dia); totApt+=hh;
       if(hh===0) ausencias.push({colab:c,dia});
-      else if(hh/esp<META) baixos.push({colab:c,dia,hh,esp,pct:Math.round(hh/esp*100)});
+      else if(hh/esp<0.50) baixos.push({colab:c,dia,hh,esp,pct:Math.round(hh/esp*100)});
     });
   });
   const ader=totPrev>0?Math.round(totApt/totPrev*100):0;
   const corAder=ader>=75?'var(--green)':ader>=50?'var(--amber)':'var(--red)';
 
-  // Métricas
-  const elM=document.getElementById('apt-metricas');
-  if(elM) elM.innerHTML=[
-    {l:'H-H previsto',             v:totPrev.toFixed(1)+'h', s:'Baseado na escala cadastrada',            c:'var(--yellow)'},
-    {l:'Aderência ao apontamento', v:ader+'%',               s:'H-H apontado / H-H disponível',           c:corAder},
-    {l:'Ausência de apontamento',  v:ausencias.length,       s:'Dias sem registro (sem justificativa)',    c:ausencias.length>0?'var(--red)':'#374151'},
-    {l:'Baixo apontamento',        v:baixos.length,          s:`Dias abaixo de ${Math.round(META*100)}% do esperado`, c:baixos.length>0?'var(--amber)':'#374151'},
+  document.getElementById('apt-metricas').innerHTML=[
+    {l:'H-H previsto',             v:totPrev.toFixed(1)+'h', s:'Baseado no turno cadastrado',    c:'var(--yellow)'},
+    {l:'Aderência ao apontamento', v:ader+'%',               s:'H-H apontado / H-H disponível',  c:corAder},
+    {l:'Ausência de apontamento',  v:ausencias.length,       s:'Dias sem registro',               c:ausencias.length>0?'var(--red)':'#374151'},
+    {l:'Baixo apontamento',        v:baixos.length,          s:'Dias abaixo de 50% do esperado',  c:baixos.length>0?'var(--amber)':'#374151'},
   ].map(({l,v,s,c})=>`<div class="metric"><div class="m-label">${l}</div><div class="m-val" style="color:${c}">${v}</div><div class="m-sub">${s}</div></div>`).join('');
 
-  // Pontos de atenção — sempre dois blocos lado a lado
+  // Quadro do dia
+  renderQuadro(cf,ehFolga,deFerias,hj,am);
+
+  // Pontos de atenção — retrátil, fechado por padrão
+  const totalPontos=ausencias.length+baixos.length;
   const ausMap={};
   ausencias.forEach(({colab,dia})=>{const k=colab.cracha;if(!ausMap[k])ausMap[k]={colab,dias:[]};ausMap[k].dias.push(dia);});
+
   const elP=document.getElementById('apt-pontos');
   if(elP){
-    elP.style.display='block';
     elP.innerHTML=`
-      <div class="card-title" style="margin-bottom:12px"><i class="ti ti-alert-triangle" style="color:var(--amber)"></i> PONTOS DE ATENÇÃO</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div>
-          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4b5563;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-            <span style="width:7px;height:7px;border-radius:50%;background:var(--red);display:inline-block"></span>Ausência de apontamento
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="card-title" style="margin:0"><i class="ti ti-alert-triangle" style="color:var(--amber)"></i> PONTOS DE ATENÇÃO</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${totalPontos>0?`<span style="background:${totalPontos>0?'var(--red-l)':'var(--green-l)'};color:${totalPontos>0?'var(--red)':'var(--green)'};font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">${totalPontos} ponto${totalPontos>1?'s':''}</span>`:''}
+            <button id="apt-pontos-toggle" class="apt-icon-btn" title="${S.pontosAberto?'Recolher':'Expandir'}">
+              <i class="ti ti-chevron-${S.pontosAberto?'up':'down'}"></i>
+            </button>
           </div>
-          ${ausencias.length===0
-            ? `<div style="font-size:11px;color:#9ca3af;padding:8px 0"><i class="ti ti-circle-check" style="color:var(--green)"></i> Nenhuma ausência no período.</div>`
-            : Object.values(ausMap).map(({colab,dias})=>`
-              <div class="apt-attn-row">
-                <span style="width:7px;height:7px;border-radius:50%;background:var(--red);flex-shrink:0;margin-top:4px;display:inline-block"></span>
-                <div style="flex:1"><strong>${colab.nome.split(' ').slice(0,2).join(' ')}</strong> — ${dias.map(fmtDM).join(', ')}</div>
-                <button class="dd-action-btn secondary apt-btn-just" data-ch="${colab.cracha}" data-nome="${colab.nome}" data-dias="${dias.join(',')}"
-                  style="height:24px;padding:0 8px;font-size:10px;font-family:var(--font)"><i class="ti ti-pencil"></i></button>
-              </div>`).join('')}
-          <div style="font-size:10px;color:#9ca3af;margin-top:6px;background:var(--bg);padding:5px 8px;border-radius:var(--radius-sm)">Tratativa: Treinamento ou Serviço externo</div>
         </div>
-        <div>
-          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4b5563;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-            <span style="width:7px;height:7px;border-radius:50%;background:var(--amber);display:inline-block"></span>Baixo apontamento
-            <span style="background:var(--amber-l);color:var(--amber);font-size:9px;padding:1px 6px;border-radius:10px">meta ${Math.round(META*100)}%</span>
+        <div id="apt-pontos-body" style="display:${S.pontosAberto?'block':'none'};margin-top:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div>
+              <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4b5563;margin-bottom:8px;display:flex;align-items:center;gap:5px">
+                <span style="width:7px;height:7px;border-radius:50%;background:var(--red);display:inline-block"></span>Ausência
+              </div>
+              ${ausencias.length===0
+                ?`<p style="font-size:11px;color:#9ca3af"><i class="ti ti-circle-check" style="color:var(--green)"></i> Nenhuma ausência.</p>`
+                :Object.values(ausMap).map(({colab,dias})=>`
+                  <div class="apt-attn-row">
+                    <span style="width:6px;height:6px;border-radius:50%;background:var(--red);flex-shrink:0;margin-top:5px;display:inline-block"></span>
+                    <div style="flex:1"><strong>${colab.nome.split(' ').slice(0,2).join(' ')}</strong> — ${dias.map(fmtDM).join(', ')}</div>
+                    <button class="apt-icon-btn apt-btn-just" data-ch="${colab.cracha}" data-nome="${colab.nome}" data-dias="${dias.join(',')}" title="Justificar"><i class="ti ti-pencil"></i></button>
+                  </div>`).join('')}
+              <div style="font-size:10px;color:#9ca3af;margin-top:5px;background:var(--bg);padding:4px 8px;border-radius:var(--radius-sm)">Tratativa: Treinamento ou Serviço externo</div>
+            </div>
+            <div>
+              <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4b5563;margin-bottom:8px;display:flex;align-items:center;gap:5px">
+                <span style="width:7px;height:7px;border-radius:50%;background:#fb923c;display:inline-block"></span>Baixo apontamento
+                <span style="background:#ffedd5;color:#c2410c;font-size:9px;padding:1px 5px;border-radius:10px">< 50%</span>
+              </div>
+              ${baixos.length===0
+                ?`<p style="font-size:11px;color:#9ca3af"><i class="ti ti-circle-check" style="color:var(--green)"></i> Nenhum baixo apontamento.</p>`
+                :baixos.map(({colab,dia,hh,esp,pct})=>`
+                  <div class="apt-attn-row">
+                    <span style="width:6px;height:6px;border-radius:50%;background:#fb923c;flex-shrink:0;margin-top:5px;display:inline-block"></span>
+                    <div><strong>${colab.nome.split(' ')[0]}</strong> — ${fmtDM(dia)} · ${hh.toFixed(1)}h/${esp.toFixed(1)}h (${pct}%)</div>
+                  </div>`).join('')}
+              <div style="font-size:10px;color:#9ca3af;margin-top:5px;background:var(--bg);padding:4px 8px;border-radius:var(--radius-sm)">Tratativa disponível em breve.</div>
+            </div>
           </div>
-          ${baixos.length===0
-            ? `<div style="font-size:11px;color:#9ca3af;padding:8px 0"><i class="ti ti-circle-check" style="color:var(--green)"></i> Nenhum baixo apontamento no período.</div>`
-            : baixos.map(({colab,dia,hh,esp,pct})=>`
-              <div class="apt-attn-row">
-                <span style="width:7px;height:7px;border-radius:50%;background:var(--amber);flex-shrink:0;margin-top:4px;display:inline-block"></span>
-                <div><strong>${colab.nome.split(' ')[0]}</strong> — ${fmtDM(dia)} · ${hh.toFixed(1)}h de ${esp.toFixed(1)}h (${pct}%)</div>
-              </div>`).join('')}
-          <div style="font-size:10px;color:#9ca3af;margin-top:6px;background:var(--bg);padding:5px 8px;border-radius:var(--radius-sm)">Tratativa disponível em breve.</div>
         </div>
       </div>`;
+    document.getElementById('apt-pontos-toggle').addEventListener('click',()=>{
+      S.pontosAberto=!S.pontosAberto;
+      document.getElementById('apt-pontos-body').style.display=S.pontosAberto?'block':'none';
+      document.getElementById('apt-pontos-toggle').innerHTML=`<i class="ti ti-chevron-${S.pontosAberto?'up':'down'}"></i>`;
+      document.getElementById('apt-pontos-toggle').title=S.pontosAberto?'Recolher':'Expandir';
+    });
     document.querySelectorAll('.apt-btn-just').forEach(btn=>btn.addEventListener('click',()=>modalJustif(btn.dataset.ch,btn.dataset.nome,btn.dataset.dias.split(','))));
   }
 
   renderHeatmap(cf,dias,hhDia,ehFolga,deFerias,getJust,hhEsp,hj);
   renderTabela();
-  const elI=document.getElementById('apt-importar');
-  if(elI){elI.innerHTML=htmlImportador();bindImportador();}
+}
+
+/* ── Quadro do dia ── */
+function renderQuadro(cf,ehFolga,deFerias,hj,am){
+  const el=document.getElementById('apt-quadro');
+  if(!el) return;
+
+  function situacaoDia(c,dia){
+    if(deFerias(c.cracha,dia)) return 'ferias';
+    if(ehFolga(c,dia)) return 'folga';
+    return 'trabalho';
+  }
+
+  const folgandoHoje=cf.filter(c=>situacaoDia(c,hj)==='folga');
+  const folgandoAmanha=cf.filter(c=>situacaoDia(c,am)==='folga');
+  const feriasHoje=cf.filter(c=>situacaoDia(c,hj)==='ferias');
+
+  // Agrupar por turno
+  function agruparPorTurno(colabs){
+    const g={};
+    colabs.forEach(c=>{
+      const t=S.turnos.find(x=>x.id===c.turno_id);
+      const tn=t?t.nome:'Sem turno';
+      if(!g[tn]) g[tn]=[];
+      g[tn].push(c.nome.split(' ')[0]);
+    });
+    return g;
+  }
+
+  function renderGrupo(mapa){
+    if(!Object.keys(mapa).length) return `<span style="font-size:11px;color:#9ca3af">Nenhum</span>`;
+    return Object.entries(mapa).map(([turno,nomes])=>
+      `<span style="font-size:11px"><strong>${turno}:</strong> ${nomes.join(', ')}</span>`
+    ).join('<br>');
+  }
+
+  el.innerHTML=`
+    <div class="card" style="padding:12px 16px">
+      <div class="card-title" style="margin-bottom:10px"><i class="ti ti-calendar-today" style="color:var(--blue)"></i> QUADRO DO DIA — ${diaSem(hj)} ${fmtFull(hj)}</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;margin-bottom:6px;display:flex;align-items:center;gap:5px">
+            <span style="width:8px;height:8px;border-radius:50%;background:#9ca3af;display:inline-block"></span>Folgando hoje
+            <span style="background:#f3f4f6;color:#374151;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:auto">${folgandoHoje.length}</span>
+          </div>
+          ${renderGrupo(agruparPorTurno(folgandoHoje))}
+        </div>
+        <div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;margin-bottom:6px;display:flex;align-items:center;gap:5px">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--amber);display:inline-block"></span>Folgando amanhã
+            <span style="background:var(--amber-l);color:var(--amber);font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:auto">${folgandoAmanha.length}</span>
+          </div>
+          ${renderGrupo(agruparPorTurno(folgandoAmanha))}
+        </div>
+        <div style="background:var(--bg);border-radius:var(--radius-sm);padding:10px">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;margin-bottom:6px;display:flex;align-items:center;gap:5px">
+            <span style="width:8px;height:8px;border-radius:50%;background:#60a5fa;display:inline-block"></span>De férias
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:auto">${feriasHoje.length}</span>
+          </div>
+          ${renderGrupo(agruparPorTurno(feriasHoje))}
+        </div>
+      </div>
+    </div>`;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -502,46 +591,50 @@ function renderDados(cf){
 function renderHeatmap(cf,todosDias,hhDia,ehFolga,deFerias,getJust,hhEsp,hj){
   const el=document.getElementById('apt-heatmap');
   if(!el) return;
-  const PPG=14, pags=Math.ceil(todosDias.length/PPG), pag=Math.min(S.hmPag,pags-1);
+  const PPG=14,pags=Math.ceil(todosDias.length/PPG),pag=Math.min(S.hmPag,pags-1);
   const dias=todosDias.slice(pag*PPG,(pag+1)*PPG);
 
   function cellBg(c,dia){
-    if(dia>hj)                return {bg:'#93c5fd',fg:'#1e3a8a',lbl:''};   // azul vivo — disponível
-    if(deFerias(c.cracha,dia)) return {bg:'#60a5fa',fg:'#1e3a8a',lbl:'F'};  // azul médio — férias
+    if(dia>hj)                return {bg:'#93c5fd',fg:'#1e3a8a',lbl:''};
+    if(deFerias(c.cracha,dia)) return {bg:'#60a5fa',fg:'#1e3a8a',lbl:'F'};
     const just=getJust(c.cracha,dia);
-    if(just)                   return {bg:'#fbbf24',fg:'#78350f',lbl:just.tratativa?.substring(0,1)||'J'}; // âmbar vivo
-    if(ehFolga(c,dia))         return {bg:'#9ca3af',fg:'#f9fafb',lbl:''};   // cinza visível — folga
-    const hh=hhDia(c.cracha,dia), esp=hhEsp(c,dia);
-    if(esp===0) return {bg:'#e5e7eb',fg:'#6b7280',lbl:''};
-    if(hh===0)  return {bg:'#f87171',fg:'#7f1d1d',lbl:''};                  // vermelho vivo — sem registro
+    if(just)                   return {bg:'#fbbf24',fg:'#78350f',lbl:just.tratativa?.substring(0,1)||'J'};
+    if(ehFolga(c,dia))         return {bg:'#9ca3af',fg:'#f9fafb',lbl:''};
+    const hh=hhDia(c.cracha,dia),esp=hhEsp(c,dia);
+    if(esp===0)  return {bg:'#e5e7eb',fg:'#6b7280',lbl:''};
+    if(hh===0)   return {bg:'#f87171',fg:'#7f1d1d',lbl:''};
     const pct=hh/esp;
-    if(pct>=META)              return {bg:'#16a34a',fg:'#dcfce7',lbl:hh.toFixed(1)+'h'}; // verde escuro — alto
-    if(pct>=0.50)              return {bg:'#facc15',fg:'#78350f',lbl:hh.toFixed(1)+'h'}; // amarelo vivo — médio
-    return {bg:'#fb923c',fg:'#7c2d12',lbl:hh.toFixed(1)+'h'};              // laranja vivo — baixo
+    if(pct>=META)   return {bg:'#16a34a',fg:'#dcfce7',lbl:hh.toFixed(1)+'h'};
+    if(pct>=0.50)   return {bg:'#facc15',fg:'#78350f',lbl:hh.toFixed(1)+'h'};
+    return {bg:'#fb923c',fg:'#7c2d12',lbl:hh.toFixed(1)+'h'};
   }
 
-  // Agrupar por turno
-  const porTurno={ADM:[],A:[],B:[],C:[],_sem:[]};
+  // Agrupar por turno (nome do turno)
+  const porTurno={};
+  S.turnos.forEach(t=>porTurno[t.nome]=[]);
+  porTurno['Não configurado']=[];
   cf.forEach(c=>{
-    const t=c.turno&&TURNOS.includes(c.turno)?c.turno:'_sem';
-    porTurno[t].push(c);
+    const t=S.turnos.find(x=>x.id===c.turno_id);
+    const k=t?t.nome:'Não configurado';
+    if(!porTurno[k]) porTurno[k]=[];
+    porTurno[k].push(c);
   });
 
   let linhas='';
-  [...TURNOS,'_sem'].forEach(turno=>{
-    const colabs=porTurno[turno]?.sort((a,b)=>a.nome.localeCompare(b.nome))||[];
+  [...S.turnos.map(t=>t.nome),'Não configurado'].forEach(turno=>{
+    const colabs=(porTurno[turno]||[]).sort((a,b)=>a.nome.localeCompare(b.nome));
     if(!colabs.length) return;
-    linhas+=`<div class="apt-turno-hdr">TURNO ${turno==='_sem'?'NÃO CONFIGURADO ⚠':turno}</div>`;
+    linhas+=`<div class="apt-turno-hdr">${turno==='Não configurado'?'⚠ NÃO CONFIGURADO':turno.toUpperCase()}</div>`;
     colabs.forEach(c=>{
       linhas+=`<div style="font-size:11px;color:#374151;display:flex;align-items:center;height:26px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px;font-weight:600" title="${c.nome}">${c.nome.split(' ')[0]}</div>
-      ${dias.map(dia=>{const {bg,fg,lbl}=cellBg(c,dia);return `<div class="apt-hm-cell" data-ch="${c.cracha}" data-dia="${dia}" style="background:${bg};color:${fg}" title="${c.nome} · ${diaSem(dia)} ${fmtDM(dia)}">${lbl}</div>`;}).join('')}`;
+      ${dias.map(dia=>{const{bg,fg,lbl}=cellBg(c,dia);return `<div class="apt-hm-cell" data-ch="${c.cracha}" data-dia="${dia}" style="background:${bg};color:${fg}" title="${c.nome} · ${diaSem(dia)} ${fmtDM(dia)}">${lbl}</div>`;}).join('')}`;
     });
   });
 
   const legenda=[
-    {bg:'#16a34a',txt:`Alto ≥${Math.round(META*100)}%`},
-    {bg:'#facc15',txt:`Médio ≥50% <${Math.round(META*100)}%`},
-    {bg:'#fb923c',txt:'Baixo >0% <50%'},
+    {bg:'#16a34a',txt:`≥ ${Math.round(META*100)}%`},
+    {bg:'#facc15',txt:'≥50% <75%'},
+    {bg:'#fb923c',txt:'>0% <50%'},
     {bg:'#f87171',txt:'Sem registro'},
     {bg:'#9ca3af',txt:'Folga'},
     {bg:'#93c5fd',txt:'Disponível'},
@@ -556,15 +649,15 @@ function renderHeatmap(cf,todosDias,hhDia,ehFolga,deFerias,getJust,hhEsp,hj){
         <span style="font-weight:400;text-transform:none;font-size:10px;color:#6b7280;margin-left:6px">${fmtFull(dias[0])} – ${fmtFull(dias[dias.length-1])}</span>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${legenda.map(({bg,txt})=>`<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#4b5563;font-weight:500">
-            <span style="width:10px;height:10px;border-radius:2px;background:${bg};display:inline-block;border:1px solid rgba(0,0,0,.1)"></span>${txt}
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          ${legenda.map(({bg,txt})=>`<span style="display:flex;align-items:center;gap:3px;font-size:10px;color:#4b5563;font-weight:500">
+            <span style="width:10px;height:10px;border-radius:2px;background:${bg};display:inline-block;border:1px solid rgba(0,0,0,.08)"></span>${txt}
           </span>`).join('')}
         </div>
         <div style="display:flex;gap:4px;align-items:center">
-          <button id="hm-prev" class="dd-action-btn secondary" style="height:26px;width:26px;padding:0;font-family:var(--font)" ${pag===0?'disabled':''}><i class="ti ti-chevron-left"></i></button>
+          <button id="hm-prev" class="apt-icon-btn" ${pag===0?'disabled':''}><i class="ti ti-chevron-left"></i></button>
           <span style="font-size:11px;color:#4b5563;font-weight:500;padding:0 4px">${pag+1}/${pags}</span>
-          <button id="hm-next" class="dd-action-btn secondary" style="height:26px;width:26px;padding:0;font-family:var(--font)" ${pag>=pags-1?'disabled':''}><i class="ti ti-chevron-right"></i></button>
+          <button id="hm-next" class="apt-icon-btn" ${pag>=pags-1?'disabled':''}><i class="ti ti-chevron-right"></i></button>
         </div>
       </div>
     </div>
@@ -577,9 +670,8 @@ function renderHeatmap(cf,todosDias,hhDia,ehFolga,deFerias,getJust,hhEsp,hj){
         ${linhas}
       </div>
     </div>
-    <div style="margin-top:10px;font-size:10px;color:#6b7280;background:var(--bg);padding:6px 10px;border-radius:var(--radius-sm);display:flex;align-items:center;gap:6px">
-      <i class="ti ti-info-circle" style="flex-shrink:0"></i>
-      Cores por % do H-H esperado na escala · Alto ≥${Math.round(META*100)}% · Médio ≥50% · Baixo >0% · H-H exibido nas células
+    <div style="margin-top:8px;font-size:10px;color:#6b7280;background:var(--bg);padding:5px 10px;border-radius:var(--radius-sm)">
+      <i class="ti ti-info-circle"></i> Cores por % do H-H esperado no turno · ≥75% verde · ≥50% amarelo · <50% laranja · 0% vermelho
     </div>`;
 
   document.getElementById('hm-prev')?.addEventListener('click',()=>{S.hmPag--;renderHeatmap(cf,todosDias,hhDia,ehFolga,deFerias,getJust,hhEsp,hj);});
@@ -594,15 +686,17 @@ function detalheCell(c,dia,hhDia,hhEsp,hj){
   if(dia>hj){abrirModal('Dia disponível',`<p style="font-size:12px;color:#9ca3af;text-align:center;padding:16px">${fmtFull(dia)} ainda não chegou.</p>`);return;}
   const apts=S.apontamentos.filter(a=>String(a.chapa)===String(c.cracha)&&a.data_apontamento===dia);
   const tot=apts.reduce((s,a)=>s+parseFloat(String(a.hh_total||0).replace(',','.'))||0,0);
-  const esp=hhEsp(c,dia);
-  const pct=esp>0?Math.round(tot/esp*100):0;
+  const esp=hhEsp(c,dia),pct=esp>0?Math.round(tot/esp*100):0;
+  const cor=pct>=75?'var(--green)':pct>=50?'var(--amber)':'var(--red)';
   abrirModal(`${c.nome.split(' ').slice(0,2).join(' ')} · ${diaSem(dia)} ${fmtFull(dia)}`,
-    `<div style="font-size:11px;color:#6b7280;margin-bottom:12px">Esperado: <strong>${esp.toFixed(1)}h</strong> · Apontado: <strong style="color:${pct>=75?'var(--green)':pct>=50?'var(--amber)':'var(--red)'}">${tot.toFixed(1)}h</strong> · <strong>${pct}%</strong></div>`+
-    (apts.length===0?`<p style="font-size:12px;color:#9ca3af;text-align:center;padding:16px">Nenhum apontamento neste dia.</p>`
-    :`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr>${['OS','Descrição','Início','Fim','H-H'].map(h=>`<th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280">${h}</th>`).join('')}</tr></thead>
-        <tbody>
-          ${apts.map(a=>`<tr style="border-bottom:1px solid #f3f4f6">
+    `<div style="font-size:11px;color:#6b7280;margin-bottom:12px;background:var(--bg);padding:8px 10px;border-radius:var(--radius-sm)">
+      Esperado: <strong>${esp.toFixed(1)}h</strong> · Apontado: <strong style="color:${cor}">${tot.toFixed(1)}h</strong> · <strong style="color:${cor}">${pct}%</strong>
+    </div>`+
+    (apts.length===0
+      ?`<p style="font-size:12px;color:#9ca3af;text-align:center;padding:16px">Nenhum apontamento neste dia.</p>`
+      :`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr>${['OS','Descrição','Início','Fim','H-H'].map(h=>`<th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280">${h}</th>`).join('')}</tr></thead>
+          <tbody>${apts.map(a=>`<tr style="border-bottom:1px solid #f3f4f6">
             <td style="padding:5px 8px;font-family:monospace">${a.os}</td>
             <td style="padding:5px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.desc_servico||''}">${a.desc_servico||'—'}</td>
             <td style="padding:5px 8px">${a.hora_inicio}</td>
@@ -610,48 +704,48 @@ function detalheCell(c,dia,hhDia,hhEsp,hj){
             <td style="padding:5px 8px;font-weight:600">${(parseFloat(String(a.hh_total||0).replace(',','.'))||0).toFixed(1)}h</td>
           </tr>`).join('')}
           <tr style="background:var(--bg)"><td colspan="4" style="padding:5px 8px;font-weight:700;font-size:11px">Total</td>
-          <td style="padding:5px 8px;font-weight:700;color:${pct>=75?'var(--green)':pct>=50?'var(--amber)':'var(--red)'}">${tot.toFixed(1)}h</td></tr>
-        </tbody>
-      </table></div>`));
+          <td style="padding:5px 8px;font-weight:700;color:${cor}">${tot.toFixed(1)}h</td></tr>
+          </tbody></table></div>`));
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   TABELA — retrátil, mais recente primeiro, com descrição
+   TABELA
    ═══════════════════════════════════════════════════════════════ */
 function renderTabela(){
   const el=document.getElementById('apt-tabela');
   if(!el) return;
   const hj=hoje();
   const apts=[...S.apontamentos].filter(a=>a.data_apontamento<=hj)
-    .sort((a,b)=>{ if(a.data_apontamento!==b.data_apontamento) return a.data_apontamento>b.data_apontamento?-1:1; return (a.hora_inicio||'')>(b.hora_inicio||'')?-1:1; });
+    .sort((a,b)=>a.data_apontamento!==b.data_apontamento?a.data_apontamento>b.data_apontamento?-1:1:(a.hora_inicio||'')>(b.hora_inicio||'')?-1:1);
   el.style.display='block';
   el.innerHTML=`
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0">
+    <div style="display:flex;justify-content:space-between;align-items:center">
       <div class="card-title" style="margin:0"><i class="ti ti-list-details"></i> DETALHAMENTO DE APONTAMENTOS</div>
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:11px;color:#6b7280">${apts.length} registros</span>
-        <button id="apt-tbl-toggle" class="dd-action-btn secondary" style="height:26px;padding:0 10px;font-family:var(--font);font-size:11px">
-          ${S.tabelaAberta?'<i class="ti ti-chevron-up"></i> Recolher':'<i class="ti ti-chevron-down"></i> Expandir'}
+        <button id="apt-tbl-toggle" class="apt-icon-btn" title="${S.tabelaAberta?'Recolher':'Expandir'}">
+          <i class="ti ti-chevron-${S.tabelaAberta?'up':'down'}"></i>
         </button>
       </div>
     </div>
     <div id="apt-tbl-body" style="display:${S.tabelaAberta?'block':'none'};margin-top:12px">
-      <div style="overflow-x:auto;max-height:360px;overflow-y:auto" class="apt-tbl-wrap">
+      <div style="overflow-x:auto;max-height:360px;overflow-y:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead style="position:sticky;top:0;background:var(--card-bg);z-index:1">
             <tr>${['Data','Colaborador','OS','Descrição','Início','Fim','H-H'].map(h=>`<th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280;white-space:nowrap">${h}</th>`).join('')}</tr>
           </thead>
           <tbody>
-            ${apts.length===0?`<tr><td colspan="7" style="text-align:center;padding:24px;color:#9ca3af">Nenhum apontamento no período.</td></tr>`
-            :apts.map(a=>`<tr style="border-bottom:1px solid #f9fafb">
-                <td style="padding:5px 10px;white-space:nowrap;font-size:11px">${fmtDM(a.data_apontamento)}</td>
-                <td style="padding:5px 10px;white-space:nowrap">${(a.nome||'').split(' ').slice(0,2).join(' ')}</td>
-                <td style="padding:5px 10px;font-family:monospace;font-size:11px">${a.os}</td>
-                <td style="padding:5px 10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.desc_servico||''}">${a.desc_servico||'—'}</td>
-                <td style="padding:5px 10px;white-space:nowrap">${a.hora_inicio}</td>
-                <td style="padding:5px 10px;white-space:nowrap">${a.hora_fim}</td>
-                <td style="padding:5px 10px;font-weight:600">${(parseFloat(String(a.hh_total||0).replace(',','.'))||0).toFixed(1)}h</td>
-              </tr>`).join('')}
+            ${apts.length===0
+              ?`<tr><td colspan="7" style="text-align:center;padding:24px;color:#9ca3af">Nenhum apontamento no período.</td></tr>`
+              :apts.map(a=>`<tr style="border-bottom:1px solid #f9fafb">
+                  <td style="padding:5px 10px;white-space:nowrap;font-size:11px">${fmtDM(a.data_apontamento)}</td>
+                  <td style="padding:5px 10px;white-space:nowrap">${(a.nome||'').split(' ').slice(0,2).join(' ')}</td>
+                  <td style="padding:5px 10px;font-family:monospace;font-size:11px">${a.os}</td>
+                  <td style="padding:5px 10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.desc_servico||''}">${a.desc_servico||'—'}</td>
+                  <td style="padding:5px 10px;white-space:nowrap">${a.hora_inicio}</td>
+                  <td style="padding:5px 10px;white-space:nowrap">${a.hora_fim}</td>
+                  <td style="padding:5px 10px;font-weight:600">${(parseFloat(String(a.hh_total||0).replace(',','.'))||0).toFixed(1)}h</td>
+                </tr>`).join('')}
           </tbody>
         </table>
       </div>
@@ -680,10 +774,10 @@ function htmlImportador(){
       <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
         <div id="apt-imp-bar" style="height:100%;background:var(--yellow);border-radius:2px;width:0%;transition:width .3s"></div>
       </div>
-      <div id="apt-imp-msg" style="font-size:10px;color:#6b7280;margin-top:4px"></div>
+      <div id="apt-imp-msg" style="font-size:11px;color:#6b7280;margin-top:5px;line-height:1.5"></div>
     </div>
-  </div>`;
-}
+  </div>`;}
+
 function bindImportador(){
   const inp=document.getElementById('apt-file'), zona=document.getElementById('apt-drop');
   if(!inp||!zona) return;
@@ -692,95 +786,108 @@ function bindImportador(){
   zona.addEventListener('drop',e=>{e.preventDefault();zona.classList.remove('over');if(e.dataTransfer.files[0])processarImport(e.dataTransfer.files[0]);});
   inp.addEventListener('change',()=>{if(inp.files[0])processarImport(inp.files[0]);});
 }
+
 async function processarImport(file){
   const prog=document.getElementById('apt-imp-prog'),bar=document.getElementById('apt-imp-bar'),msg=document.getElementById('apt-imp-msg');
-  function setP(pct,txt){prog.style.display='block';bar.style.width=pct+'%';msg.textContent=txt;}
+  function setP(pct,txt){prog.style.display='block';bar.style.width=pct+'%';msg.innerHTML=txt;}
   try{
-    setP(5,'Lendo arquivo…'); showToast('Importando…','info',60000);
+    setP(5,'Lendo arquivo…');
+    showToast('Importando…','info',60000);
     const XLSX=await loadXLSX();
     const buf=await file.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array'});
     const ws=wb.Sheets[wb.SheetNames[0]];
     const raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
-    setP(15,'Parseando…');
-    const records=[];let curCh=null,curNome=null;
+    setP(15,'Parseando apontamentos…');
+
+    // Remove prefixo de aspas simples do formato SYLK do PIMS
+    function L(v){ if(v==null) return null; const s=String(v).trim(); return s.startsWith("'")?s.slice(1).trim():s; }
     const reCracha=/^(\d{3,8})\s*-\s*(.+)/,reData=/^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
-    // Remove prefixo de aspas simples do formato SYLK (.xls antigo do PIMS)
-    function limpar(v){ if(v==null) return null; const s=String(v).trim(); return s.startsWith("'")?s.slice(1):s; }
     function serialToIso(n){const d=new Date(Date.UTC(1900,0,1)+(n-2)*86400000);return d.toISOString().slice(0,10);}
     function parseData(v){
       if(v==null) return null;
       if(typeof v==='number'&&v>10000) return serialToIso(v);
-      const s=limpar(v);
+      const s=L(v); if(!s) return null;
       if(reData.test(s)){const[d,m,y]=s.split('/');return `${y.length===2?'20'+y:y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;}
       return null;
     }
     function parseHora(v){
       if(v==null) return '';
-      if(typeof v==='number'){const tm=Math.round(v*1440);const h=Math.floor(tm/60),mn=tm%60;return `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`;}
-      return limpar(v);
+      if(typeof v==='number'){const tm=Math.round(v*1440);return `${String(Math.floor(tm/60)).padStart(2,'0')}:${String(tm%60).padStart(2,'0')}`;}
+      return L(v)||'';
     }
     function parseHH(v){
       if(v==null) return 0;
       if(typeof v==='number'&&v<1) return parseFloat((v*24).toFixed(2));
-      return parseFloat(String(limpar(v)).replace(',','.'))||0;
+      return parseFloat(String(L(v)||'0').replace(',','.'))||0;
     }
+
+    const records=[];let curCh=null,curNome=null;
     for(let i=0;i<raw.length;i++){
       const row=raw[i];
-      const v0=limpar(row[0])||'';
-      const v1=limpar(row[1])||'';
-      if(v0==='Funcionário:'){const m=reCracha.exec(v1);if(m){curCh=m[1].replace(/^0+/,'')||'0';curNome=m[2].trim();}continue;}
+      const v0=L(row[0])||'', v1=L(row[1])||'';
+      if(v0==='Funcionário:'){
+        const m=reCracha.exec(v1);
+        if(m){curCh=m[1].replace(/^0+/,'')||'0';curNome=m[2].trim();}
+        continue;
+      }
       const dataIso=parseData(row[0]);
       if(!dataIso||!curCh) continue;
       const nxt=raw[i+1]||[];
-      const os=limpar(nxt[0])||'';
-      const desc=nxt[1]!=null?String(limpar(nxt[1])||'').replace(/^\d+-\s*/,''):'';
+      const os=L(nxt[0])||'';
+      const desc=nxt[1]!=null?String(L(nxt[1])||'').replace(/^\d+-\s*/,''):'';
       const hi=parseHora(row[2]),hf=parseHora(row[3]),ht=parseHH(row[4]);
       if(!os||!hi) continue;
-      records.push({data_apontamento:dataIso,os,desc_servico:desc||null,tipo_atividade:v1,hora_inicio:hi,hora_fim:hf,hh_total:ht,chapa:curCh,nome:curNome});
+      records.push({data_apontamento:dataIso,os,desc_servico:desc||null,tipo_atividade:L(v1)||'',hora_inicio:hi,hora_fim:hf,hh_total:ht,chapa:curCh,nome:curNome});
     }
+
     if(!records.length){
+      const funcs=raw.filter(r=>L(r[0])==='Funcionário:').length;
+      const linhasDatas=raw.filter(r=>parseData(r[0])).length;
+      setP(0,`⚠ Nenhum registro encontrado.<br>Diagnóstico: ${funcs} funcionário(s) detectado(s), ${linhasDatas} linha(s) de data encontrada(s).<br>Verifique se é o relatório "Apontamento de Mão-de-Obra por Funcionário" do PIMS.`);
       showToast('Nenhum registro encontrado.','erro');
-      prog.style.display='none';
-      // Diagnóstico
-      const funcs=raw.filter(r=>limpar(r[0])==='Funcionário:').length;
-      const linhasDados=raw.filter(r=>parseData(r[0])).length;
-      document.getElementById('apt-imp-msg').textContent=`Diagnóstico: ${funcs} funcionário(s) detectado(s), ${linhasDados} linhas de data encontradas. Verifique se o arquivo é o relatório correto do PIMS.`;
-      prog.style.display='block';
       return;
     }
-    // Resumo antes de enviar
-    const colaboradoresUnicos=[...new Set(records.map(r=>r.nome))];
-    setP(30,`${records.length} apontamentos de ${colaboradoresUnicos.length} colaborador(es). Enviando…`);
-    const LOTE=200;
-    for(let i=0;i<records.length;i+=LOTE){
-      await sb('apontamentos',{method:'POST',prefer:'resolution=merge-duplicates,return=minimal',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(records.slice(i,i+LOTE))});
-      setP(30+Math.round((i/records.length)*65),`Enviando… ${Math.min(i+LOTE,records.length)}/${records.length}`);
-    }
-    setP(100,'Concluído!');
+
     const nColabs=[...new Set(records.map(r=>r.nome))].length;
     const datas=[...new Set(records.map(r=>r.data_apontamento))].sort();
-    const periodoStr=datas.length>0?` · ${fmtDM(datas[0])} – ${fmtDM(datas[datas.length-1])}`:'';
-    showToast(`${records.length} apontamentos de ${nColabs} colaboradores importados${periodoStr}.`,'ok',6000);
+    const periodoStr=datas.length?` · ${fmtDM(datas[0])} – ${fmtDM(datas[datas.length-1])}`:'';
+    setP(30,`${records.length} apontamentos de ${nColabs} colaborador(es)${periodoStr}. Enviando…`);
+
+    const LOTE=200;
+    for(let i=0;i<records.length;i+=LOTE){
+      await sb('apontamentos',{method:'POST',prefer:'resolution=merge-duplicates,return=minimal',
+        headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},
+        body:JSON.stringify(records.slice(i,i+LOTE))});
+      setP(30+Math.round((i/records.length)*65),`Enviando… ${Math.min(i+LOTE,records.length)}/${records.length}`);
+    }
+    setP(100,`✓ ${records.length} apontamentos de ${nColabs} colaboradores importados${periodoStr}.`);
+    showToast(`${records.length} apontamentos importados.`,'ok',5000);
     setTimeout(()=>carregarDados(),800);
-  }catch(e){showToast('Erro: '+e.message,'erro');prog.style.display='none';console.error(e);}
+  }catch(e){
+    showToast('Erro na importação: '+e.message,'erro');
+    setP(0,`⚠ Erro: ${e.message}`);
+    console.error(e);
+  }
 }
 async function loadXLSX(){if(window.XLSX)return window.XLSX;return new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=()=>res(window.XLSX);s.onerror=()=>rej(new Error('Falha XLSX'));document.head.appendChild(s);});}
 
 /* ═══════════════════════════════════════════════════════════════
    MODAL JUSTIFICATIVA
    ═══════════════════════════════════════════════════════════════ */
+const LBL=txt=>`<label style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;display:block;margin-bottom:4px">${txt}</label>`;
+
 function modalJustif(ch,nome,dias){
   abrirModal('Lançar justificativa',`
-    <div class="apt-modal-body" style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-direction:column;gap:12px">
       <div style="font-size:12px;background:var(--bg);border-radius:var(--radius-sm);padding:8px 10px"><strong>${nome}</strong> — ${dias.map(fmtDM).join(', ')}</div>
-      <div class="apt-field">${L('Tipo')}<select id="jt-tipo" class="apt-select"><option>Ausência de apontamento</option><option>Troca de folga</option></select></div>
-      <div class="apt-row">
-        <div class="apt-field">${L('Data início')}<input type="date" id="jt-di" value="${dias[0]}" class="apt-input"></div>
-        <div class="apt-field">${L('Data fim')}<input type="date" id="jt-df" value="${dias[dias.length-1]}" class="apt-input"></div>
+      <div>${LBL('Tipo')}<select id="jt-tipo" class="apt-select"><option>Ausência de apontamento</option><option>Troca de folga</option></select></div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">${LBL('Data início')}<input type="date" id="jt-di" value="${dias[0]}" class="apt-input"></div>
+        <div style="flex:1">${LBL('Data fim')}<input type="date" id="jt-df" value="${dias[dias.length-1]}" class="apt-input"></div>
       </div>
-      <div class="apt-field">${L('Tratativa')}<select id="jt-trat" class="apt-select"><option>Treinamento</option><option>Serviço externo</option></select></div>
-      <div class="apt-field">${L('Obs. (opcional)')}<input type="text" id="jt-obs" class="apt-input" placeholder="EX: NR-10 TURMA JUNHO…" oninput="this.value=this.value.toUpperCase()"></div>
+      <div>${LBL('Tratativa')}<select id="jt-trat" class="apt-select"><option>Treinamento</option><option>Serviço externo</option></select></div>
+      <div>${LBL('Obs. (opcional)')}<input type="text" id="jt-obs" class="apt-input" placeholder="EX: NR-10 TURMA JUNHO…" oninput="this.value=this.value.toUpperCase()"></div>
     </div>`,
     async()=>{
       await sb('apt_justificativas',{method:'POST',body:JSON.stringify({chapa:ch,nome,tipo:document.getElementById('jt-tipo').value,tratativa:document.getElementById('jt-trat').value,data_inicio:document.getElementById('jt-di').value,data_fim:document.getElementById('jt-df').value,obs:document.getElementById('jt-obs').value})});
@@ -796,53 +903,58 @@ function htmlCadastro(){return `
     <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto">
       <div id="cad-tab-c" class="apt-tab ${S.cadAba==='colab'?'on':''}">Colaboradores</div>
       <div id="cad-tab-e" class="apt-tab ${S.cadAba==='escalas'?'on':''}">Escalas</div>
+      <div id="cad-tab-t" class="apt-tab ${S.cadAba==='turnos'?'on':''}">Turnos</div>
       <div id="cad-tab-j" class="apt-tab ${S.cadAba==='justif'?'on':''}">Justificativas</div>
     </div>
     <div id="cad-body"></div>
   </div>`;}
+
 function bindCadastro(){
   document.getElementById('cad-tab-c').onclick=()=>{S.cadAba='colab';renderCadBody();};
   document.getElementById('cad-tab-e').onclick=()=>{S.cadAba='escalas';renderCadBody();};
+  document.getElementById('cad-tab-t').onclick=()=>{S.cadAba='turnos';renderCadBody();};
   document.getElementById('cad-tab-j').onclick=()=>{S.cadAba='justif';renderCadBody();};
 }
+
 async function carregarCadastro(){
   try{
-    const [cols,esp,jus,esc]=await Promise.all([
+    const [cols,esp,jus,esc,tur]=await Promise.all([
       sb('apt_colaboradores?order=nome.asc'),
       sb('apt_especialidades?order=nome.asc').catch(()=>[]),
       sb('apt_justificativas?order=data_inicio.desc&limit=100').catch(()=>[]),
       sb('apt_escalas?order=nome.asc').catch(()=>[]),
+      sb('apt_turnos?order=nome.asc').catch(()=>[]),
     ]);
-    S.colaboradores=cols;S.especialidades=esp;S.justificativas=jus;S.escalas=esc;
+    S.colaboradores=cols;S.especialidades=esp;S.justificativas=jus;S.escalas=esc;S.turnos=tur;
     renderCadBody();
   }catch(e){const el=document.getElementById('cad-body');if(el)el.innerHTML=`<p style="color:var(--red)">${e.message}</p>`;}
 }
+
 function renderCadBody(){
-  ['cad-tab-c','cad-tab-e','cad-tab-j'].forEach((id,i)=>{
-    const tabs=['colab','escalas','justif'];
+  ['cad-tab-c','cad-tab-e','cad-tab-t','cad-tab-j'].forEach((id,i)=>{
+    const tabs=['colab','escalas','turnos','justif'];
     const el=document.getElementById(id);
     if(el) el.className='apt-tab'+(S.cadAba===tabs[i]?' on':'');
   });
   if(S.cadAba==='colab') renderCadColab();
   else if(S.cadAba==='escalas') renderCadEscalas();
+  else if(S.cadAba==='turnos') renderCadTurnos();
   else renderCadJustif();
 }
 
-/* ── Label helper ── */
-const L=txt=>`<label style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;display:block;margin-bottom:4px">${txt}</label>`;
-
 /* ── Colaboradores ── */
 function renderCadColab(){
-  // Filtro de modalidade para o cadastro
-  const modFiltroOpts=`<option value="">Todas modalidades</option>`+MODALIDADES.map(m=>`<option value="${m}">${m}</option>`).join('');
   document.getElementById('cad-body').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <div class="dd-btn" style="cursor:text;width:200px;padding:0;gap:0">
           <i class="ti ti-search" style="padding:0 8px;color:#9ca3af"></i>
-          <input id="cad-busca" type="text" placeholder="Buscar colaborador…" style="border:none;background:transparent;outline:none;font-family:var(--font);font-size:11px;flex:1;height:30px;padding-right:8px">
+          <input id="cad-busca" type="text" placeholder="Buscar…" style="border:none;background:transparent;outline:none;font-family:var(--font);font-size:11px;flex:1;height:30px;padding-right:8px">
         </div>
-        <select id="cad-mod-filtro" class="dd-btn" style="cursor:pointer;width:160px;font-family:var(--font);font-size:11px">${modFiltroOpts}</select>
+        <select id="cad-mod-filtro" class="dd-btn" style="cursor:pointer;width:150px;font-family:var(--font);font-size:11px">
+          <option value="">Todas modalidades</option>
+          ${MODALIDADES.map(m=>`<option value="${m}">${m}</option>`).join('')}
+        </select>
       </div>
       <div style="display:flex;gap:6px">
         <button id="cad-imp" class="dd-action-btn secondary" style="height:30px;padding:0 12px;font-family:var(--font)"><i class="ti ti-download"></i> Importar da base</button>
@@ -852,23 +964,22 @@ function renderCadColab(){
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr>${['Crachá','Nome','Modalidade','Especialidade','Escala','Turno','Status','Ações'].map(h=>`<th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280;white-space:nowrap">${h}</th>`).join('')}</tr></thead>
-        <tbody id="cad-tbody">
-          ${renderLinhasColabs(S.colaboradores)}
-        </tbody>
+        <tbody id="cad-tbody">${linhasColabs(S.colaboradores)}</tbody>
       </table>
     </div>`;
-  document.getElementById('cad-busca').addEventListener('input',filtrarTabelaColabs);
-  document.getElementById('cad-mod-filtro').addEventListener('change',filtrarTabelaColabs);
+  document.getElementById('cad-busca').addEventListener('input',filtrarColabs);
+  document.getElementById('cad-mod-filtro').addEventListener('change',filtrarColabs);
   document.getElementById('cad-imp').onclick=()=>importarBase();
   document.getElementById('cad-esp-btn').onclick=()=>modalEspecialidades();
   bindBotoesColab();
 }
 
-function renderLinhasColabs(colabs){
-  if(!colabs.length) return `<tr><td colspan="8" style="padding:24px;text-align:center;color:#9ca3af">Nenhum colaborador. Clique em <strong>Importar da base</strong>.</td></tr>`;
-  return colabs.map((c,i)=>{
+function linhasColabs(cols){
+  if(!cols.length) return `<tr><td colspan="8" style="padding:24px;text-align:center;color:#9ca3af">Nenhum colaborador. Clique em <strong>Importar da base</strong>.</td></tr>`;
+  return cols.map(c=>{
     const esp=S.especialidades.find(e=>e.id===c.especialidade_id);
     const esc=S.escalas.find(e=>e.id===c.escala_id);
+    const tur=S.turnos.find(t=>t.id===c.turno_id);
     const ok=completo(c);
     return `<tr style="border-bottom:1px solid #f9fafb" data-cracha="${c.cracha}" data-mod="${c.modalidade||''}">
       <td style="padding:6px 10px;color:#6b7280;font-size:11px">${c.cracha}</td>
@@ -876,305 +987,298 @@ function renderLinhasColabs(colabs){
       <td style="padding:6px 10px">${c.modalidade?`<span style="background:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px">${c.modalidade}</span>`:'—'}</td>
       <td style="padding:6px 10px;font-size:11px;color:#6b7280">${esp?esp.nome:'—'}</td>
       <td style="padding:6px 10px;font-size:11px">${esc?esc.nome:'—'}</td>
-      <td style="padding:6px 10px">${c.turno?`<span style="background:var(--bg);border:1px solid var(--border);font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px">${c.turno}</span>`:'—'}</td>
-      <td style="padding:6px 10px">${ok?`<span style="background:var(--green-l);color:var(--green);font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px">✓ Completo</span>`:`<span class="apt-incompleto">⚠ Incompleto</span>`}</td>
+      <td style="padding:6px 10px;font-size:11px">${tur?tur.nome:'—'}</td>
+      <td style="padding:6px 10px">${ok
+        ?`<span style="background:var(--green-l);color:var(--green);font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px">✓ OK</span>`
+        :`<span class="apt-incompleto">⚠ Incompleto</span>`}</td>
       <td style="padding:6px 10px">
-        <div style="display:flex;gap:4px">
-          <button class="dd-action-btn secondary cad-edit" data-cracha="${c.cracha}" style="height:26px;width:26px;padding:0;font-family:var(--font)" title="Editar dados"><i class="ti ti-pencil"></i></button>
-          <button class="dd-action-btn secondary cad-escala" data-cracha="${c.cracha}" style="height:26px;width:26px;padding:0;font-family:var(--font)" title="Alterar escala"><i class="ti ti-calendar-event"></i></button>
-          <button class="dd-action-btn secondary cad-turno" data-cracha="${c.cracha}" style="height:26px;width:26px;padding:0;font-family:var(--font)" title="Alterar turno"><i class="ti ti-users-group"></i></button>
-          <button class="dd-action-btn secondary cad-justif" data-cracha="${c.cracha}" style="height:26px;width:26px;padding:0;font-family:var(--font)" title="Justificativa"><i class="ti ti-notes"></i></button>
-          <button class="dd-action-btn secondary cad-ferias" data-cracha="${c.cracha}" style="height:26px;width:26px;padding:0;font-family:var(--font)" title="Férias"><i class="ti ti-beach"></i></button>
+        <div style="display:flex;gap:3px">
+          <button class="apt-icon-btn cad-edit" data-cracha="${c.cracha}" title="Editar"><i class="ti ti-pencil"></i></button>
+          <button class="apt-icon-btn cad-escala" data-cracha="${c.cracha}" title="Alterar escala"><i class="ti ti-calendar-event"></i></button>
+          <button class="apt-icon-btn cad-turno" data-cracha="${c.cracha}" title="Alterar turno"><i class="ti ti-clock"></i></button>
+          <button class="apt-icon-btn cad-justif" data-cracha="${c.cracha}" title="Justificativa"><i class="ti ti-notes"></i></button>
+          <button class="apt-icon-btn cad-ferias" data-cracha="${c.cracha}" title="Férias"><i class="ti ti-beach"></i></button>
         </div>
       </td>
-    </tr>`;}).join('');
+    </tr>`;}). join('');
 }
 
-function filtrarTabelaColabs(){
+function filtrarColabs(){
   const q=(document.getElementById('cad-busca')?.value||'').toLowerCase();
   const mod=document.getElementById('cad-mod-filtro')?.value||'';
   document.querySelectorAll('#cad-tbody tr[data-cracha]').forEach(tr=>{
-    const matchQ=!q||tr.textContent.toLowerCase().includes(q);
-    const matchM=!mod||tr.dataset.mod===mod;
-    tr.style.display=(matchQ&&matchM)?'':'none';
+    tr.style.display=(!q||tr.textContent.toLowerCase().includes(q))&&(!mod||tr.dataset.mod===mod)?'':'none';
   });
 }
 
 function bindBotoesColab(){
-  document.querySelectorAll('.cad-edit').forEach(btn=>{
-    const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);
-    if(c) btn.onclick=()=>modalColab(c);
-  });
-  document.querySelectorAll('.cad-escala').forEach(btn=>{
-    const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);
-    if(c) btn.onclick=()=>modalEscala(c);
-  });
-  document.querySelectorAll('.cad-turno').forEach(btn=>{
-    const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);
-    if(c) btn.onclick=()=>modalTurno(c);
-  });
-  document.querySelectorAll('.cad-justif').forEach(btn=>{
-    const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);
-    if(c) btn.onclick=()=>modalJustif(c.cracha,c.nome,[hoje()]);
-  });
-  document.querySelectorAll('.cad-ferias').forEach(btn=>{
-    const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);
-    if(c) btn.onclick=()=>modalFerias(c);
-  });
+  document.querySelectorAll('.cad-edit').forEach(btn=>{const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);if(c)btn.onclick=()=>modalColab(c);});
+  document.querySelectorAll('.cad-escala').forEach(btn=>{const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);if(c)btn.onclick=()=>modalEscalaColab(c);});
+  document.querySelectorAll('.cad-turno').forEach(btn=>{const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);if(c)btn.onclick=()=>modalTurnoColab(c);});
+  document.querySelectorAll('.cad-justif').forEach(btn=>{const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);if(c)btn.onclick=()=>modalJustif(c.cracha,c.nome,[hoje()]);});
+  document.querySelectorAll('.cad-ferias').forEach(btn=>{const c=S.colaboradores.find(x=>x.cracha===btn.dataset.cracha);if(c)btn.onclick=()=>modalFerias(c);});
 }
 
-/* ── Escalas ── */
+/* ── Escalas (ciclo de folgas) ── */
 function renderCadEscalas(){
   document.getElementById('cad-body').innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <span style="font-size:12px;color:#6b7280">${S.escalas.length} escala(s) cadastrada(s)</span>
+      <div style="font-size:12px;color:#6b7280">Define o <strong>ciclo de folgas</strong> (5x1, 6x1, ADM)</div>
       <button id="esc-nova-btn" class="dd-action-btn primary" style="height:30px;padding:0 14px;font-family:var(--font)"><i class="ti ti-plus"></i> Nova escala</button>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr>${['Nome','Tipo','Entrada','Saída','Refeição','HH/dia','Ciclo','Exc. Sexta','Ações'].map(h=>`<th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280;white-space:nowrap">${h}</th>`).join('')}</tr></thead>
+        <thead><tr>${['Nome','Tipo','Dias trabalhados','Folga','Ações'].map(h=>`<th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280">${h}</th>`).join('')}</tr></thead>
         <tbody>
-          ${S.escalas.length===0?`<tr><td colspan="9" style="padding:24px;text-align:center;color:#9ca3af">Nenhuma escala cadastrada.</td></tr>`
-          :S.escalas.map(e=>{
-            const hh=calcHH(e.hora_entrada,e.hora_saida,e.intervalo_min);
-            const hhSex=e.saida_sexta?calcHH(e.hora_entrada,e.saida_sexta,e.intervalo_min):null;
-            return `<tr style="border-bottom:1px solid #f9fafb">
-              <td style="padding:6px 10px;font-weight:500">${e.nome}</td>
-              <td style="padding:6px 10px"><span style="background:${e.tipo_ciclo==='ADM'?'#eff6ff':'#f0fdf4'};color:${e.tipo_ciclo==='ADM'?'#1d4ed8':'var(--green)'};font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px">${e.tipo_ciclo}</span></td>
-              <td style="padding:6px 10px">${e.hora_entrada}</td>
-              <td style="padding:6px 10px">${e.hora_saida}</td>
-              <td style="padding:6px 10px">${e.intervalo_min}min</td>
-              <td style="padding:6px 10px;font-weight:600">${hh.toFixed(2)}h</td>
-              <td style="padding:6px 10px">${e.tipo_ciclo==='ADM'?'Sáb/Dom':`${e.dias_trabalho}x1`}</td>
-              <td style="padding:6px 10px">${hhSex?hhSex.toFixed(2)+'h':'—'}</td>
-              <td style="padding:6px 10px">
-                <div style="display:flex;gap:4px">
-                  <button class="dd-action-btn secondary esc-edit" data-id="${e.id}" style="height:26px;width:26px;padding:0;font-family:var(--font)" title="Editar"><i class="ti ti-pencil"></i></button>
-                  <button class="dd-action-btn secondary esc-del" data-id="${e.id}" style="height:26px;width:26px;padding:0;font-family:var(--font);color:var(--red)" title="Excluir"><i class="ti ti-trash"></i></button>
-                </div>
-              </td>
-            </tr>`;}).join('')}
+          ${S.escalas.length===0?`<tr><td colspan="5" style="padding:24px;text-align:center;color:#9ca3af">Nenhuma escala.</td></tr>`
+          :S.escalas.map(e=>`<tr style="border-bottom:1px solid #f9fafb">
+            <td style="padding:6px 10px;font-weight:500">${e.nome}</td>
+            <td style="padding:6px 10px"><span style="background:${e.tipo_ciclo==='ADM'?'#eff6ff':'#f0fdf4'};color:${e.tipo_ciclo==='ADM'?'#1d4ed8':'var(--green)'};font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px">${e.tipo_ciclo}</span></td>
+            <td style="padding:6px 10px">${e.tipo_ciclo==='ADM'?'—':e.dias_trabalho}</td>
+            <td style="padding:6px 10px">${e.tipo_ciclo==='ADM'?'Sábado e domingo':'A cada '+e.dias_trabalho+' dias trabalhados'}</td>
+            <td style="padding:6px 10px"><div style="display:flex;gap:3px">
+              <button class="apt-icon-btn esc-edit" data-id="${e.id}" title="Editar"><i class="ti ti-pencil"></i></button>
+              <button class="apt-icon-btn esc-del" data-id="${e.id}" title="Excluir" style="color:var(--red)"><i class="ti ti-trash"></i></button>
+            </div></td>
+          </tr>`).join('')}
         </tbody>
       </table>
     </div>`;
   document.getElementById('esc-nova-btn').onclick=()=>modalEscalaCad();
   document.querySelectorAll('.esc-edit').forEach(btn=>{const e=S.escalas.find(x=>String(x.id)===btn.dataset.id);if(e)btn.onclick=()=>modalEscalaCad(e);});
   document.querySelectorAll('.esc-del').forEach(btn=>btn.onclick=async()=>{
-    if(!confirm('Excluir esta escala? Colaboradores vinculados perderão a configuração.'))return;
+    if(!confirm('Excluir escala?'))return;
     await sb(`apt_escalas?id=eq.${btn.dataset.id}`,{method:'DELETE'});
-    showToast('Escala excluída.','ok'); carregarCadastro();
+    showToast('Excluído.','ok');carregarCadastro();
   });
 }
 
 function modalEscalaCad(e=null){
   const edit=!!e;
   abrirModal(edit?'Editar escala':'Nova escala',`
-    <div class="apt-modal-body" style="display:flex;flex-direction:column;gap:12px">
-      <div class="apt-field">${L('Nome da escala')}
-        <input id="ec-nome" class="apt-input" value="${e?.nome||''}" placeholder="EX: TURNO A — 5X1" oninput="this.value=this.value.toUpperCase()">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div>${LBL('Nome')}<input id="ec-nome" class="apt-input" value="${e?.nome||''}" placeholder="EX: 5X1" oninput="this.value=this.value.toUpperCase()"></div>
+      <div>${LBL('Tipo de ciclo')}
+        <select id="ec-tipo" class="apt-select">
+          <option value="ROTATIVO" ${(!e||e.tipo_ciclo==='ROTATIVO')?'selected':''}>ROTATIVO</option>
+          <option value="ADM" ${e?.tipo_ciclo==='ADM'?'selected':''}>ADM (folga sáb/dom)</option>
+        </select>
       </div>
-      <div class="apt-row">
-        <div class="apt-field">${L('Tipo de ciclo')}
-          <select id="ec-tipo" class="apt-select">
-            <option value="ROTATIVO" ${(!e||e.tipo_ciclo==='ROTATIVO')?'selected':''}>ROTATIVO (5x1, 6x1…)</option>
-            <option value="ADM" ${e?.tipo_ciclo==='ADM'?'selected':''}>ADM (sáb/dom folga)</option>
-          </select>
-        </div>
-        <div class="apt-field" id="ec-diaswrap">${L('Dias trabalhados antes da folga')}
-          <input id="ec-dias" type="number" class="apt-input" value="${e?.dias_trabalho||5}" min="1" max="9">
-        </div>
+      <div id="ec-dias-wrap" style="${e?.tipo_ciclo==='ADM'?'display:none':''}">
+        ${LBL('Dias trabalhados antes da folga')}
+        <input id="ec-dias" type="number" class="apt-input" value="${e?.dias_trabalho||5}" min="1" max="9" style="width:100px">
       </div>
-      <div class="apt-row">
-        <div class="apt-field">${L('Hora entrada')}<input id="ec-entrada" type="time" class="apt-input" value="${e?.hora_entrada||'07:00'}"></div>
-        <div class="apt-field">${L('Hora saída')}<input id="ec-saida" type="time" class="apt-input" value="${e?.hora_saida||'15:20'}"></div>
-        <div class="apt-field">${L('Intervalo refeição (min)')}<input id="ec-int" type="number" class="apt-input" value="${e?.intervalo_min||60}" min="0"></div>
-      </div>
-      <div class="apt-field" id="ec-sexwrap">${L('Saída sexta-feira (exceção ADM — opcional)')}
-        <input id="ec-sex" type="time" class="apt-input" value="${e?.saida_sexta||'16:00'}">
-      </div>
-      <div id="ec-preview" style="font-size:11px;color:var(--green);background:var(--green-l);border-radius:var(--radius-sm);padding:8px 10px"></div>
     </div>`,
     async()=>{
-      const dados={nome:document.getElementById('ec-nome').value.trim(),tipo_ciclo:document.getElementById('ec-tipo').value,
-        hora_entrada:document.getElementById('ec-entrada').value,hora_saida:document.getElementById('ec-saida').value,
-        intervalo_min:parseInt(document.getElementById('ec-int').value)||60,
-        dias_trabalho:document.getElementById('ec-tipo').value==='ROTATIVO'?parseInt(document.getElementById('ec-dias').value)||5:null,
-        saida_sexta:document.getElementById('ec-tipo').value==='ADM'&&document.getElementById('ec-sex').value?document.getElementById('ec-sex').value:null,
-      };
-      if(!dados.nome){showToast('Nome é obrigatório.','erro');return;}
+      const nome=document.getElementById('ec-nome').value.trim(),tipo=document.getElementById('ec-tipo').value;
+      const dias=parseInt(document.getElementById('ec-dias').value)||5;
+      if(!nome){showToast('Nome obrigatório.','erro');return;}
+      const dados={nome,tipo_ciclo:tipo,hora_entrada:'00:00',hora_saida:'00:00',intervalo_min:0,dias_trabalho:tipo==='ROTATIVO'?dias:null,saida_sexta:null};
       if(edit) await sb(`apt_escalas?id=eq.${e.id}`,{method:'PATCH',body:JSON.stringify(dados)});
       else     await sb('apt_escalas',{method:'POST',body:JSON.stringify(dados)});
       fecharModal();showToast('Escala salva!','ok');carregarCadastro();
     },'Salvar');
   setTimeout(()=>{
-    const tipo=document.getElementById('ec-tipo'),dw=document.getElementById('ec-diaswrap'),sw=document.getElementById('ec-sexwrap');
-    const prev=document.getElementById('ec-preview');
-    function upTipo(){dw.style.display=tipo.value==='ROTATIVO'?'flex':'none';sw.style.display=tipo.value==='ADM'?'block':'none';upPrev();}
-    function upPrev(){
-      const ent=document.getElementById('ec-entrada').value,sai=document.getElementById('ec-saida').value,intr=parseInt(document.getElementById('ec-int').value)||60;
-      if(!ent||!sai)return;
-      const hh=calcHH(ent,sai,intr);
-      const cycle=tipo.value==='ADM'?'Folgas: sáb e dom':`Folga a cada ${document.getElementById('ec-dias').value} dias trabalhados`;
-      prev.textContent=`HH disponível: ${hh.toFixed(2)}h/dia · ${cycle}`;
-    }
-    tipo.addEventListener('change',upTipo);
-    ['ec-entrada','ec-saida','ec-int','ec-dias'].forEach(id=>document.getElementById(id)?.addEventListener('input',upPrev));
-    upTipo();
+    const tipo=document.getElementById('ec-tipo'),dw=document.getElementById('ec-dias-wrap');
+    tipo.addEventListener('change',()=>{dw.style.display=tipo.value==='ADM'?'none':'block';});
   },50);
 }
 
-/* ── Justificativas ── */
-function renderCadJustif(){
-  const todos=[...S.justificativas].sort((a,b)=>b.data_inicio<a.data_inicio?1:-1);
+/* ── Turnos (horários) ── */
+function renderCadTurnos(){
   document.getElementById('cad-body').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:12px;color:#6b7280">Define os <strong>horários de entrada/saída</strong> e H-H esperado</div>
+      <button id="tur-nova-btn" class="dd-action-btn primary" style="height:30px;padding:0 14px;font-family:var(--font)"><i class="ti ti-plus"></i> Novo turno</button>
+    </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr>${['Data','Colaborador','Tipo','Tratativa','Obs.','Ações'].map(h=>`<th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280">${h}</th>`).join('')}</tr></thead>
+        <thead><tr>${['Nome','Entrada','Saída','Refeição','HH/dia','Exc. Sexta','HH Sexta','Ações'].map(h=>`<th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280;white-space:nowrap">${h}</th>`).join('')}</tr></thead>
         <tbody>
-          ${todos.length===0?`<tr><td colspan="6" style="padding:24px;text-align:center;color:#9ca3af">Nenhuma justificativa.</td></tr>`
-          :todos.map(j=>`<tr style="border-bottom:1px solid #f9fafb">
-              <td style="padding:6px 10px;white-space:nowrap">${fmtDM(j.data_inicio)}${j.data_fim!==j.data_inicio?' – '+fmtDM(j.data_fim):''}</td>
-              <td style="padding:6px 10px">${j.nome||j.chapa}</td>
-              <td style="padding:6px 10px"><span style="background:${j.tipo.includes('Aus')?'var(--red-l)':'var(--green-l)'};color:${j.tipo.includes('Aus')?'var(--red)':'var(--green)'};font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px">${j.tipo}</span></td>
-              <td style="padding:6px 10px;font-size:11px">${j.tratativa||'—'}</td>
-              <td style="padding:6px 10px;font-size:11px;color:#6b7280">${j.obs||'—'}</td>
-              <td style="padding:6px 10px"><button class="dd-action-btn secondary" style="height:26px;width:26px;padding:0;font-family:var(--font)"><i class="ti ti-pencil"></i></button></td>
-            </tr>`).join('')}
+          ${S.turnos.length===0?`<tr><td colspan="8" style="padding:24px;text-align:center;color:#9ca3af">Nenhum turno.</td></tr>`
+          :S.turnos.map(t=>{
+            const hh=calcHH(t.hora_entrada,t.hora_saida,t.intervalo_min);
+            const hhSex=t.saida_sexta?calcHH(t.hora_entrada,t.saida_sexta,t.intervalo_min):null;
+            return `<tr style="border-bottom:1px solid #f9fafb">
+              <td style="padding:6px 10px;font-weight:500">${t.nome}</td>
+              <td style="padding:6px 10px">${t.hora_entrada}</td>
+              <td style="padding:6px 10px">${t.hora_saida}</td>
+              <td style="padding:6px 10px">${t.intervalo_min}min</td>
+              <td style="padding:6px 10px;font-weight:600">${hh.toFixed(2)}h</td>
+              <td style="padding:6px 10px">${t.saida_sexta||'—'}</td>
+              <td style="padding:6px 10px">${hhSex?hhSex.toFixed(2)+'h':'—'}</td>
+              <td style="padding:6px 10px"><div style="display:flex;gap:3px">
+                <button class="apt-icon-btn tur-edit" data-id="${t.id}" title="Editar"><i class="ti ti-pencil"></i></button>
+                <button class="apt-icon-btn tur-del" data-id="${t.id}" title="Excluir" style="color:var(--red)"><i class="ti ti-trash"></i></button>
+              </div></td>
+            </tr>`;}).join('')}
         </tbody>
       </table>
-    </div>`;}
+    </div>`;
+  document.getElementById('tur-nova-btn').onclick=()=>modalTurnoCad();
+  document.querySelectorAll('.tur-edit').forEach(btn=>{const t=S.turnos.find(x=>String(x.id)===btn.dataset.id);if(t)btn.onclick=()=>modalTurnoCad(t);});
+  document.querySelectorAll('.tur-del').forEach(btn=>btn.onclick=async()=>{
+    if(!confirm('Excluir turno?'))return;
+    await sb(`apt_turnos?id=eq.${btn.dataset.id}`,{method:'DELETE'});
+    showToast('Excluído.','ok');carregarCadastro();
+  });
+}
 
-/* ── Modal Colaborador ── */
-function modalColab(c){
-  const espOpts=`<option value="">Selecione…</option>`+S.especialidades.map(e=>`<option value="${e.id}" ${c?.especialidade_id===e.id?'selected':''}>${e.nome}</option>`).join('');
-  const escOpts=`<option value="">Selecione…</option>`+S.escalas.map(e=>`<option value="${e.id}" ${c?.escala_id===e.id?'selected':''}>${e.nome}</option>`).join('');
-  abrirModal('Editar colaborador',`
-    <div class="apt-modal-body" style="display:flex;flex-direction:column;gap:12px">
-      <div class="apt-row">
-        <div class="apt-field" style="max-width:110px">${L('Crachá')}<input id="nc-cr" class="apt-input" value="${c.cracha}" readonly style="background:#f9fafb;color:#6b7280"></div>
-        <div class="apt-field">${L('Nome completo')}<input id="nc-nm" class="apt-input" value="${c.nome}" readonly style="background:#f9fafb;color:#6b7280"></div>
+function modalTurnoCad(t=null){
+  const edit=!!t;
+  abrirModal(edit?'Editar turno':'Novo turno',`
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div>${LBL('Nome do turno')}<input id="tc-nome" class="apt-input" value="${t?.nome||''}" placeholder="EX: TURNO A" oninput="this.value=this.value.toUpperCase()"></div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">${LBL('Hora entrada')}<input id="tc-ent" type="time" class="apt-input" value="${t?.hora_entrada||'07:00'}"></div>
+        <div style="flex:1">${LBL('Hora saída')}<input id="tc-sai" type="time" class="apt-input" value="${t?.hora_saida||'15:20'}"></div>
+        <div style="flex:1">${LBL('Refeição (min)')}<input id="tc-int" type="number" class="apt-input" value="${t?.intervalo_min||60}" min="0"></div>
       </div>
-      <div class="apt-row">
-        <div class="apt-field">${L('Modalidade')}
+      <div>${LBL('Saída sexta-feira (opcional — para ADM)')}
+        <input id="tc-sex" type="time" class="apt-input" value="${t?.saida_sexta||''}">
+      </div>
+      <div id="tc-prev" style="font-size:11px;color:var(--green);background:var(--green-l);border-radius:var(--radius-sm);padding:7px 10px"></div>
+    </div>`,
+    async()=>{
+      const nome=document.getElementById('tc-nome').value.trim();
+      if(!nome){showToast('Nome obrigatório.','erro');return;}
+      const dados={nome,hora_entrada:document.getElementById('tc-ent').value,hora_saida:document.getElementById('tc-sai').value,intervalo_min:parseInt(document.getElementById('tc-int').value)||60,saida_sexta:document.getElementById('tc-sex').value||null};
+      if(edit) await sb(`apt_turnos?id=eq.${t.id}`,{method:'PATCH',body:JSON.stringify(dados)});
+      else     await sb('apt_turnos',{method:'POST',body:JSON.stringify(dados)});
+      fecharModal();showToast('Turno salvo!','ok');carregarCadastro();
+    },'Salvar');
+  setTimeout(()=>{
+    const prev=document.getElementById('tc-prev');
+    function upP(){
+      const e=document.getElementById('tc-ent').value,s=document.getElementById('tc-sai').value,i=parseInt(document.getElementById('tc-int').value)||60,sx=document.getElementById('tc-sex').value;
+      if(!e||!s)return;
+      const hh=calcHH(e,s,i);
+      prev.textContent=`HH/dia: ${hh.toFixed(2)}h${sx?` · Sexta: ${calcHH(e,sx,i).toFixed(2)}h`:''}`;
+    }
+    ['tc-ent','tc-sai','tc-int','tc-sex'].forEach(id=>document.getElementById(id)?.addEventListener('input',upP));
+    upP();
+  },50);
+}
+
+/* ── Modal editar colaborador ── */
+function modalColab(c){
+  const espOpts=`<option value="">Selecione…</option>`+S.especialidades.map(e=>`<option value="${e.id}" ${c.especialidade_id===e.id?'selected':''}>${e.nome}</option>`).join('');
+  abrirModal('Editar colaborador',`
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;gap:8px">
+        <div style="max-width:110px">${LBL('Crachá')}<input class="apt-input" value="${c.cracha}" readonly style="background:#f9fafb;color:#6b7280"></div>
+        <div style="flex:1">${LBL('Nome')}<input class="apt-input" value="${c.nome}" readonly style="background:#f9fafb;color:#6b7280"></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">${LBL('Modalidade')}
           <select id="nc-mod" class="apt-select">
             <option value="">Selecione…</option>
             ${MODALIDADES.map(m=>`<option value="${m}" ${c.modalidade===m?'selected':''}>${m}</option>`).join('')}
           </select>
         </div>
-        <div class="apt-field">${L('Especialidade')}<select id="nc-esp" class="apt-select">${espOpts}</select></div>
-      </div>
-      <div class="apt-row">
-        <div class="apt-field">${L('Escala')}<select id="nc-esc" class="apt-select">${escOpts}</select></div>
-        <div class="apt-field">${L('Turno')}
-          <select id="nc-tur" class="apt-select">
-            <option value="">Selecione…</option>
-            ${TURNOS.map(t=>`<option value="${t}" ${c.turno===t?'selected':''}>${t}</option>`).join('')}
-          </select>
-        </div>
+        <div style="flex:1">${LBL('Especialidade')}<select id="nc-esp" class="apt-select">${espOpts}</select></div>
       </div>
     </div>`,
     async()=>{
-      await sb(`apt_colaboradores?cracha=eq.${c.cracha}`,{method:'PATCH',body:JSON.stringify({
-        modalidade:document.getElementById('nc-mod').value||null,
-        especialidade_id:document.getElementById('nc-esp').value||null,
-        escala_id:document.getElementById('nc-esc').value||null,
-        turno:document.getElementById('nc-tur').value||null,
-      })});
+      await sb(`apt_colaboradores?cracha=eq.${c.cracha}`,{method:'PATCH',body:JSON.stringify({modalidade:document.getElementById('nc-mod').value||null,especialidade_id:document.getElementById('nc-esp').value||null})});
       fecharModal();showToast('Salvo!','ok');carregarCadastro();
-    },'Salvar');}
+    },'Salvar');
+}
 
-/* ── Modal Escala do colaborador (vigência + ref passada) ── */
-function modalEscala(c){
+/* ── Modal escala do colaborador ── */
+function modalEscalaColab(c){
   const escAtual=S.escalas.find(e=>e.id===c.escala_id);
-  const escOpts=`<option value="">Selecione…</option>`+S.escalas.map(e=>`<option value="${e.id}">${e.nome}</option>`).join('');
+  const escOpts=`<option value="">Selecione…</option>`+S.escalas.map(e=>`<option value="${e.id}" ${c.escala_id===e.id?'selected':''}>${e.nome}</option>`).join('');
   abrirModal('Alterar escala — '+c.nome.split(' ')[0],`
-    <div class="apt-modal-body" style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-direction:column;gap:12px">
       <div style="font-size:11px;background:var(--bg);border-radius:var(--radius-sm);padding:8px 10px;color:#6b7280">
-        Escala atual: <strong style="color:#374151">${escAtual?escAtual.nome:'—'}</strong>${c.primeira_folga?' · 1ª folga: '+fmtFull(c.primeira_folga):''}
+        Escala atual: <strong style="color:#374151">${escAtual?escAtual.nome:'—'}</strong>
       </div>
-      <div class="apt-row">
-        <div class="apt-field">${L('Nova escala')}<select id="es-esc" class="apt-select">${escOpts}</select></div>
-        <div class="apt-field">${L('Vigência a partir de')}<input type="date" id="es-vig" value="${hoje()}" class="apt-input"></div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">${LBL('Nova escala')}<select id="es-esc" class="apt-select">${escOpts}</select></div>
+        <div style="flex:1">${LBL('Vigência a partir de')}<input type="date" id="es-vig" value="${hoje()}" class="apt-input"></div>
       </div>
-      <div class="apt-row">
-        <div class="apt-field">${L('Folga de transição?')}
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">${LBL('Folga de transição?')}
           <select id="es-trans" class="apt-select"><option value="">Não</option><option value="sim">Sim</option></select>
         </div>
-        <div class="apt-field" id="es-tdwrap" style="display:none">${L('Data folga transição')}<input type="date" id="es-td" class="apt-input"></div>
+        <div style="flex:1" id="es-tdwrap" style="display:none">${LBL('Data transição')}<input type="date" id="es-td" class="apt-input"></div>
       </div>
-      <div class="apt-field">${L('1ª folga da nova escala (ou a mais recente que você conhece)')}
+      <div>${LBL('1ª folga da nova escala')}
         <input type="date" id="es-pf" value="${c.primeira_folga||''}" class="apt-input">
       </div>
-      <div class="apt-field">
-        ${L('Data de referência passada (opcional — para calcular folgas retroativamente)')}
+      <div>${LBL('Data de referência passada (para projeção retroativa — opcional)')}
         <input type="date" id="es-ref" value="${c.data_ref_folga||''}" class="apt-input">
-        <div style="font-size:10px;color:#9ca3af;margin-top:3px">Se informado, o sistema projeta folgas para frente <em>e</em> para trás a partir desta data.</div>
+        <div style="font-size:10px;color:#9ca3af;margin-top:2px">Se informado, projeta folgas para frente e para trás a partir desta data.</div>
       </div>
       <div id="es-prev" style="display:none;font-size:10px;color:var(--green);background:var(--green-l);border-radius:var(--radius-sm);padding:7px 10px"></div>
     </div>`,
     async()=>{
-      const escId=document.getElementById('es-esc').value, vig=document.getElementById('es-vig').value;
-      const trans=document.getElementById('es-trans').value, td=document.getElementById('es-td').value;
-      const pf=document.getElementById('es-pf').value, ref=document.getElementById('es-ref').value;
+      const escId=document.getElementById('es-esc').value;
       if(!escId){showToast('Selecione uma escala.','erro');return;}
+      const vig=document.getElementById('es-vig').value,trans=document.getElementById('es-trans').value;
+      const td=document.getElementById('es-td').value,pf=document.getElementById('es-pf').value,ref=document.getElementById('es-ref').value;
       await sb('apt_historico_escalas',{method:'POST',body:JSON.stringify({chapa:c.cracha,escala_anterior:c.escala_id,escala_nova:escId,vigencia_inicio:vig,folga_transicao:trans==='sim'?td:null,primeira_folga_nova:pf||null})});
-      await sb(`apt_colaboradores?cracha=eq.${c.cracha}`,{method:'PATCH',body:JSON.stringify({escala_id:escId||null,primeira_folga:pf||null,data_ref_folga:ref||null})});
+      await sb(`apt_colaboradores?cracha=eq.${c.cracha}`,{method:'PATCH',body:JSON.stringify({escala_id:escId,primeira_folga:pf||null,data_ref_folga:ref||null})});
       fecharModal();showToast('Escala atualizada!','ok');carregarCadastro();
-    },'Salvar alteração');
+    },'Salvar');
   setTimeout(()=>{
     const trans=document.getElementById('es-trans'),tdw=document.getElementById('es-tdwrap');
     const escSel=document.getElementById('es-esc'),pfinp=document.getElementById('es-pf'),refinp=document.getElementById('es-ref'),prev=document.getElementById('es-prev');
     trans.addEventListener('change',()=>{tdw.style.display=trans.value==='sim'?'flex':'none';});
     function upPrev(){
-      const escId=escSel.value,pf=pfinp.value||refinp.value;
-      if(!escId||!pf)return;
+      const escId=escSel.value,ancora=refinp.value||pfinp.value;
+      if(!escId||!ancora)return;
       const esc=S.escalas.find(e=>String(e.id)===escId);
       if(!esc||esc.tipo_ciclo==='ADM'){prev.style.display='none';return;}
       const ciclo=esc.dias_trabalho+1;
-      const ancora=refinp.value||pf;
-      const futuras=[],passadas=[];
+      const fut=[],pass=[];
       let c=ancora;
-      for(let i=0;i<5;i++){futuras.push(fmtFull(c));c=addDays(c,ciclo);}
+      for(let i=0;i<5;i++){fut.push(fmtFull(c));c=addDays(c,ciclo);}
       c=addDays(ancora,-ciclo);
-      for(let i=0;i<3;i++){passadas.unshift(fmtFull(c));c=addDays(c,-ciclo);}
+      for(let i=0;i<3;i++){pass.unshift(fmtFull(c));c=addDays(c,-ciclo);}
       prev.style.display='block';
-      prev.innerHTML=`<i class="ti ti-calendar-check"></i> Projeção: …${passadas.join(' · ')} · <strong>${fmtFull(ancora)}</strong> · ${futuras.slice(1).join(' · ')} · …`;
+      prev.innerHTML=`<i class="ti ti-calendar-check"></i> …${pass.join(' · ')} · <strong>${fmtFull(ancora)}</strong> · ${fut.slice(1).join(' · ')} · …`;
     }
     escSel.addEventListener('change',upPrev);pfinp.addEventListener('change',upPrev);refinp.addEventListener('change',upPrev);
-  },50);}
+  },50);
+}
 
-/* ── Modal Turno ── */
-function modalTurno(c){
+/* ── Modal turno do colaborador ── */
+function modalTurnoColab(c){
+  const turAtual=S.turnos.find(t=>t.id===c.turno_id);
+  const turOpts=`<option value="">Selecione…</option>`+S.turnos.map(t=>`<option value="${t.id}" ${c.turno_id===t.id?'selected':''}>${t.nome}</option>`).join('');
   abrirModal('Alterar turno — '+c.nome.split(' ')[0],`
-    <div class="apt-modal-body" style="display:flex;flex-direction:column;gap:12px">
-      <div style="font-size:11px;background:var(--bg);border-radius:var(--radius-sm);padding:8px 10px;color:#6b7280">Turno atual: <strong style="color:#374151">${c.turno||'—'}</strong></div>
-      <div class="apt-row">
-        <div class="apt-field">${L('Novo turno')}
-          <select id="tur-novo" class="apt-select">${TURNOS.map(t=>`<option value="${t}" ${c.turno===t?'selected':''}>${t}</option>`).join('')}</select>
-        </div>
-        <div class="apt-field">${L('Vigência a partir de')}<input type="date" id="tur-vig" value="${hoje()}" class="apt-input"></div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:11px;background:var(--bg);border-radius:var(--radius-sm);padding:8px 10px;color:#6b7280">Turno atual: <strong style="color:#374151">${turAtual?turAtual.nome:'—'}</strong></div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">${LBL('Novo turno')}<select id="tur-novo" class="apt-select">${turOpts}</select></div>
+        <div style="flex:1">${LBL('Vigência a partir de')}<input type="date" id="tur-vig" value="${hoje()}" class="apt-input"></div>
       </div>
-      <div class="apt-field">${L('Obs. (opcional)')}<input type="text" id="tur-obs" class="apt-input" placeholder="EX: TRANSFERÊNCIA TURNO A→B" oninput="this.value=this.value.toUpperCase()"></div>
+      <div>${LBL('Obs. (opcional)')}<input type="text" id="tur-obs" class="apt-input" placeholder="EX: TRANSFERÊNCIA TURNO A→B" oninput="this.value=this.value.toUpperCase()"></div>
     </div>`,
     async()=>{
-      const novo=document.getElementById('tur-novo').value,vig=document.getElementById('tur-vig').value,obs=document.getElementById('tur-obs').value;
-      await sb('apt_historico_turnos',{method:'POST',body:JSON.stringify({chapa:c.cracha,turno_anterior:c.turno,turno_novo:novo,vigencia_inicio:vig,obs:obs||null})});
-      await sb(`apt_colaboradores?cracha=eq.${c.cracha}`,{method:'PATCH',body:JSON.stringify({turno:novo})});
+      const turId=document.getElementById('tur-novo').value;
+      if(!turId){showToast('Selecione um turno.','erro');return;}
+      const vig=document.getElementById('tur-vig').value,obs=document.getElementById('tur-obs').value;
+      await sb('apt_historico_turnos',{method:'POST',body:JSON.stringify({chapa:c.cracha,turno_anterior:c.turno_id,turno_novo:turId,vigencia_inicio:vig,obs:obs||null})});
+      await sb(`apt_colaboradores?cracha=eq.${c.cracha}`,{method:'PATCH',body:JSON.stringify({turno_id:parseInt(turId)})});
       fecharModal();showToast('Turno atualizado!','ok');carregarCadastro();
-    },'Salvar alteração');}
+    },'Salvar');
+}
 
 /* ── Modal Férias ── */
 function modalFerias(c){
   abrirModal('Lançar férias — '+c.nome.split(' ')[0],`
-    <div class="apt-modal-body" style="display:flex;flex-direction:column;gap:12px">
-      <div class="apt-row">
-        <div class="apt-field">${L('Início')}<input type="date" id="fer-ini" value="${hoje()}" class="apt-input"></div>
-        <div class="apt-field">${L('Duração (dias)')}<input id="fer-dias" type="number" value="30" min="1" max="90" class="apt-input"></div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">${LBL('Início')}<input type="date" id="fer-ini" value="${hoje()}" class="apt-input"></div>
+        <div style="flex:1">${LBL('Duração (dias)')}<input id="fer-dias" type="number" value="30" min="1" max="90" class="apt-input"></div>
       </div>
-      <div class="apt-field">${L('Venda de dias?')}
+      <div>${LBL('Venda de dias?')}
         <select id="fer-venda" class="apt-select"><option value="0">Não</option><option value="10">Sim — 10 dias</option><option value="custom">Personalizado</option></select>
       </div>
-      <div id="fer-vcw" style="display:none" class="apt-field">${L('Dias a vender')}<input id="fer-vc" type="number" value="10" min="1" max="30" class="apt-input" style="width:100px"></div>
+      <div id="fer-vcw" style="display:none">${LBL('Dias a vender')}<input id="fer-vc" type="number" value="10" min="1" max="30" class="apt-input" style="width:100px"></div>
       <div id="fer-prev" style="font-size:11px;color:var(--green);background:var(--green-l);border-radius:var(--radius-sm);padding:6px 10px"></div>
     </div>`,
     async()=>{
@@ -1189,11 +1293,32 @@ function modalFerias(c){
     ini.addEventListener('change',upP);dias.addEventListener('input',upP);
     function upP(){const i=ini.value,d=parseInt(dias.value)||30;if(!i)return;prev.textContent=`${fmtFull(i)} até ${fmtFull(addDays(i,d-1))} (${d} dias)`;}
     upP();
-  },50);}
+  },50);
+}
 
-/* ── Modal Especialidades ── */
+/* ── Justificativas ── */
+function renderCadJustif(){
+  const todos=[...S.justificativas].sort((a,b)=>b.data_inicio<a.data_inicio?1:-1);
+  document.getElementById('cad-body').innerHTML=`
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>${['Data','Colaborador','Tipo','Tratativa','Obs.','Ações'].map(h=>`<th style="text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280">${h}</th>`).join('')}</tr></thead>
+        <tbody>${todos.length===0?`<tr><td colspan="6" style="padding:24px;text-align:center;color:#9ca3af">Nenhuma justificativa.</td></tr>`
+          :todos.map(j=>`<tr style="border-bottom:1px solid #f9fafb">
+            <td style="padding:6px 10px;white-space:nowrap">${fmtDM(j.data_inicio)}${j.data_fim!==j.data_inicio?' – '+fmtDM(j.data_fim):''}</td>
+            <td style="padding:6px 10px">${j.nome||j.chapa}</td>
+            <td style="padding:6px 10px"><span style="background:${j.tipo.includes('Aus')?'var(--red-l)':'var(--green-l)'};color:${j.tipo.includes('Aus')?'var(--red)':'var(--green)'};font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px">${j.tipo}</span></td>
+            <td style="padding:6px 10px;font-size:11px">${j.tratativa||'—'}</td>
+            <td style="padding:6px 10px;font-size:11px;color:#6b7280">${j.obs||'—'}</td>
+            <td style="padding:6px 10px"><button class="apt-icon-btn"><i class="ti ti-pencil"></i></button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;}
+
+/* ── Especialidades ── */
 function modalEspecialidades(){
-  function lista(specs){return specs.length===0?`<tr><td colspan="3" style="padding:12px;text-align:center;color:#9ca3af;font-size:11px">Nenhuma especialidade.</td></tr>`:specs.map(e=>`<tr style="border-bottom:1px solid #f9fafb" id="esp-r-${e.id}"><td id="esp-cell-${e.id}" style="padding:5px 8px;font-size:12px">${e.nome}</td><td style="padding:5px 4px;width:28px"><button class="dd-action-btn secondary esp-ed" data-id="${e.id}" data-nome="${e.nome}" style="height:26px;width:26px;padding:0;font-family:var(--font)"><i class="ti ti-pencil"></i></button></td><td style="padding:5px 4px;width:28px"><button class="dd-action-btn secondary esp-del" data-id="${e.id}" style="height:26px;width:26px;padding:0;font-family:var(--font);color:var(--red)"><i class="ti ti-trash"></i></button></td></tr>`).join('');}
+  function lista(specs){return specs.length===0?`<tr><td colspan="3" style="padding:12px;text-align:center;color:#9ca3af">Nenhuma especialidade.</td></tr>`:specs.map(e=>`<tr style="border-bottom:1px solid #f9fafb"><td id="esp-cell-${e.id}" style="padding:5px 8px;font-size:12px">${e.nome}</td><td style="width:28px"><button class="apt-icon-btn esp-ed" data-id="${e.id}" data-nome="${e.nome}"><i class="ti ti-pencil"></i></button></td><td style="width:28px"><button class="apt-icon-btn esp-del" data-id="${e.id}" style="color:var(--red)"><i class="ti ti-trash"></i></button></td></tr>`).join('');}
   abrirModal('Gerenciar especialidades',`
     <div style="display:flex;flex-direction:column;gap:12px">
       <div style="overflow-y:auto;max-height:200px;border:1px solid var(--border);border-radius:var(--radius-sm)">
@@ -1201,7 +1326,7 @@ function modalEspecialidades(){
       </div>
       <div style="display:flex;gap:8px">
         <input id="esp-nova" class="apt-input" placeholder="NOVA ESPECIALIDADE…" style="flex:1" oninput="this.value=this.value.toUpperCase()">
-        <button id="esp-add" class="dd-action-btn primary" style="height:32px;padding:0 14px;font-family:var(--font)"><i class="ti ti-plus"></i> Adicionar</button>
+        <button id="esp-add" class="dd-action-btn primary" style="height:32px;padding:0 14px;font-family:var(--font)"><i class="ti ti-plus"></i></button>
       </div>
     </div>`);
   function bindEsp(){
@@ -1221,7 +1346,8 @@ async function importarBase(){
     await sb('apt_colaboradores',{method:'POST',body:JSON.stringify(novos.map(([ch,nome])=>({cracha:ch,nome})))});
     showToast(`${novos.length} importados. Configure modalidade, escala e turno.`,'ok');
     await carregarCadastro();
-  }catch(e){showToast('Erro: '+e.message,'erro');}}
+  }catch(e){showToast('Erro: '+e.message,'erro');}
+}
 
 /* ═══════════════════════════════════════════════════════════════
    MODAL GENÉRICO
@@ -1234,9 +1360,9 @@ function abrirModal(titulo,html,onOk=null,btnLabel='Confirmar'){
     <div style="background:var(--card-bg);border-radius:var(--radius);padding:24px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-md);font-family:var(--font)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
         <div style="font-size:14px;font-weight:700;color:#111">${titulo}</div>
-        <button id="apt-modal-x" class="dd-action-btn secondary" style="height:28px;width:28px;padding:0;font-family:var(--font)"><i class="ti ti-x"></i></button>
+        <button id="apt-modal-x" class="apt-icon-btn"><i class="ti ti-x"></i></button>
       </div>
-      <div id="apt-modal-body">${html}</div>
+      <div>${html}</div>
       ${onOk?`<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;padding-top:14px;border-top:1px solid var(--border)">
         <button id="apt-modal-cancel" class="dd-action-btn secondary" style="height:30px;padding:0 14px;font-family:var(--font)">Cancelar</button>
         <button id="apt-modal-ok" class="dd-action-btn primary" style="height:30px;padding:0 16px;font-family:var(--font)">${btnLabel}</button>
@@ -1255,7 +1381,7 @@ function fecharModal(){document.getElementById('apt-modal-ov')?.remove();}
    ═══════════════════════════════════════════════════════════════ */
 async function init(){
   injetarCSS();
-  await Promise.all([carregarColabs(),carregarEscalas()]);
+  await Promise.all([carregarColabs(),carregarEscalas(),carregarTurnos()]);
   render();
 }
 if(!window.Modulos)window.Modulos={};
