@@ -165,19 +165,23 @@ window.Modulos.apontamentos = {
   /* ── Folgas ── */
   _gerarFolgas(escala, turno, pf, ref, dataIni, dataFim) {
     if (!escala) return new Set();
+    // ADM: folga sempre sábado e domingo
     if (escala.tipo_ciclo==='ADM' || turno?.nome==='ADM') {
       const s=new Set(); let c=dataIni;
       while(c<=dataFim){ const dw=this._diaSemN(c); if(dw===0||dw===6) s.add(c); c=this._addDays(c,1); }
       return s;
     }
+    // ROTATIVO: precisa de âncora (data de referência de uma folga conhecida)
     const ancora = ref || pf;
-    if (!ancora) return new Set();
+    if (!ancora) return new Set(); // sem âncora não é possível projetar
     const ciclo = (escala.dias_trabalho||5) + 1;
     const s = new Set();
-    let c = ancora;
-    while(c<=dataFim){ s.add(c); c=this._addDays(c,ciclo); }
-    c = this._addDays(ancora,-ciclo);
-    while(c>=dataIni){ s.add(c); c=this._addDays(c,-ciclo); }
+    // Projetar para frente a partir da âncora
+    let cur = ancora;
+    while(cur<=dataFim){ s.add(cur); cur=this._addDays(cur,ciclo); }
+    // Projetar para trás a partir da âncora
+    cur = this._addDays(ancora,-ciclo);
+    while(cur>=dataIni){ s.add(cur); cur=this._addDays(cur,-ciclo); }
     return s;
   },
 
@@ -477,34 +481,58 @@ window.Modulos.apontamentos = {
     const dias = this._diasEntre(s.dataIni, s.dataFim);
 
     const hhDia  = (ch,dia) => s.apontamentos.filter(a=>String(a.chapa)===String(ch)&&a.data_apontamento===dia).reduce((t,a)=>t+(parseFloat(String(a.hh_total||0).replace(',','.'))||0),0);
-    const ehFolga = (c,dia) => this._gerarFolgas(this._escalaDe(c),this._turnoDe(c),c.primeira_folga,c.data_ref_folga,s.dataIni,s.dataFim).has(dia);
+    // Cache de folgas por colaborador para evitar recalcular a cada célula
+    const _folgasCache = new Map();
+    const ehFolga = (c,dia) => {
+      if (!_folgasCache.has(c.cracha)) {
+        // Expandir período de projeção para cobrir bem além do período visível
+        const ini = this._addDays(s.dataIni, -30);
+        const fim = this._addDays(s.dataFim, 30);
+        _folgasCache.set(c.cracha, this._gerarFolgas(this._escalaDe(c),this._turnoDe(c),c.primeira_folga,c.data_ref_folga,ini,fim));
+      }
+      return _folgasCache.get(c.cracha).has(dia);
+    };
     const deFerias = (ch,dia) => s.ferias.some(f=>String(f.chapa)===String(ch)&&f.data_inicio<=dia&&f.data_fim>=dia);
     const getJust  = (ch,dia) => s.justificativas.find(j=>String(j.chapa)===String(ch)&&j.data_inicio<=dia&&j.data_fim>=dia)||null;
     const hhEsp    = (c,dia)  => this._hhTurno(this._turnoDe(c), dia);
 
     // Métricas
-    let totPrev=0, totApt=0, ausencias=[], baixos=[];
+    let totPrev=0, totPrevPassado=0, totApt=0, ausencias=[], baixos=[];
     cf.forEach(c => {
       dias.forEach(dia => {
         const esp = hhEsp(c,dia);
         if (esp===0||ehFolga(c,dia)||deFerias(c.cracha,dia)||getJust(c.cracha,dia)) return;
-        // H-H previsto: todos os dias (passado + futuro)
+        // H-H previsto total: passado + futuro (para o card de cabeçalho)
         totPrev += esp;
-        // Aderência, ausências e baixo: só dias passados/hoje
+        // Só dias passados/hoje: aderência, ausências, baixo apontamento
         if (dia>hj) return;
+        totPrevPassado += esp;
         const hh = hhDia(c.cracha,dia);
         totApt += hh;
         if (hh===0) ausencias.push({colab:c,dia});
         else if (hh/esp < 0.50) baixos.push({colab:c,dia,hh,esp,pct:Math.round(hh/esp*100)});
       });
     });
-    const ader = totPrev>0 ? Math.round(totApt/totPrev*100) : 0;
-    const corAder = ader>=75?'var(--green)':ader>=50?'var(--amber)':'var(--red)';
+    // Aderência usa só o H-H dos dias passados como denominador
+    const ader = totPrevPassado>0 ? Math.round(totApt/totPrevPassado*100) : null;
+    const corAder = ader===null?'#9ca3af':ader>=75?'var(--green)':ader>=50?'var(--amber)':'var(--red)';
+
+    // Aviso de colaboradores sem primeira_folga (não consegue projetar folgas)
+    const semFolga = cf.filter(col => !col.primeira_folga && !col.data_ref_folga && this._escalaDe(col)?.tipo_ciclo==='ROTATIVO');
+    if (semFolga.length) {
+      const elAviso = document.getElementById('apt-metricas');
+      const avisoHtml = `<div style="grid-column:1/-1;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 14px;font-size:11px;color:#92400e;display:flex;align-items:center;gap:8px">
+        <i class="ti ti-alert-triangle" style="font-size:16px;flex-shrink:0"></i>
+        <div><strong>${semFolga.length} colaborador(es) sem 1ª folga cadastrada</strong> — folgas não podem ser projetadas e H-H previsto pode estar incorreto.
+        Configure em <strong>Cadastro → lápis → botão de escala</strong> para cada um: ${semFolga.map(x=>x.nome.split(' ')[0]).join(', ')}.</div>
+      </div>`;
+      if (elAviso) elAviso.insertAdjacentHTML('beforeend', avisoHtml);
+    }
 
     const elM = document.getElementById('apt-metricas');
     if (elM) elM.innerHTML = [
-      {l:'H-H previsto',             v:totPrev.toFixed(1)+'h', s:'Baseado no turno cadastrado',  c:'var(--yellow)'},
-      {l:'Aderência ao apontamento', v:ader+'%',               s:'H-H apontado / H-H disponível (dias passados)',c:corAder},
+      {l:'H-H previsto',             v:totPrev.toFixed(1)+'h', s:'Baseado no turno · exclui folgas e férias projetadas',  c:'var(--yellow)'},
+      {l:'Aderência ao apontamento', v:ader===null?'—':ader+'%', s:ader===null?'Nenhum dia passado no período':'H-H apontado / H-H disponível (dias passados)',c:corAder},
       {l:'Ausência de apontamento',  v:ausencias.length,       s:'Dias sem registro',             c:ausencias.length>0?'var(--red)':'#374151'},
       {l:'Baixo apontamento',        v:baixos.length,          s:'Dias abaixo de 50% do esperado',c:baixos.length>0?'var(--amber)':'#374151'},
     ].map(({l,v,s:sub,c})=>`<div class="metric"><div class="m-label">${l}</div><div class="m-val" style="color:${c}">${v}</div><div class="m-sub">${sub}</div></div>`).join('');
