@@ -145,7 +145,7 @@ function render(){
     </div>`;
   document.getElementById('apt-tab-p').onclick=()=>setAba('principal');
   document.getElementById('apt-tab-c').onclick=()=>setAba('cadastro');
-  renderContent();
+  renderContent(); // async — bind acontece dentro após HTML montado
 }
 
 function setAba(a){
@@ -159,8 +159,7 @@ async function renderContent(){
   const el=document.getElementById('apt-content');
   if(!el) return;
   if(S.aba==='principal'){
-    await Promise.all([carregarColabs(),carregarEscalas(),carregarTurnos()]);
-    // Montar HTML ANTES de chamar bind
+    // 1. Montar HTML imediatamente — sem await para não bloquear
     el.innerHTML=htmlFiltros()+`
       <div id="apt-metricas" class="metrics-row" style="margin-bottom:12px"></div>
       <div id="apt-quadro" style="margin-bottom:12px"></div>
@@ -168,9 +167,11 @@ async function renderContent(){
       <div id="apt-heatmap" class="card" style="margin-bottom:12px;display:none"></div>
       <div id="apt-tabela" class="card" style="margin-bottom:12px;display:none"></div>
       <div id="apt-importar">${htmlImportador()}</div>`;
+    // 2. Bind imediatamente — DOM já existe
     bindFiltros();
     bindImportador();
-    carregarDados();
+    // 3. Carregar dados em background
+    Promise.all([carregarColabs(),carregarEscalas(),carregarTurnos()]).then(()=>carregarDados());
   } else {
     await Promise.all([carregarColabs(),carregarEscalas(),carregarTurnos()]);
     el.innerHTML=htmlCadastro();
@@ -267,6 +268,13 @@ function htmlFiltros(){
       <div id="apt-colab-drop" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:260px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);z-index:300;max-height:200px;overflow-y:auto"></div>
     </div>
 
+    <span class="filter-label" id="lbl-ou" style="color:#9ca3af;font-size:10px">ou</span>
+    <div style="display:flex;align-items:center;gap:4px">
+      <input type="date" id="apt-di" value="${S.dataIni}" class="dd-btn" style="cursor:text;font-family:var(--font);font-size:11px;width:130px">
+      <span style="color:#9ca3af;font-size:11px">→</span>
+      <input type="date" id="apt-df" value="${S.dataFim}" class="dd-btn" style="cursor:text;font-family:var(--font);font-size:11px;width:130px">
+    </div>
+
     <button id="apt-btn-filtrar" class="dd-action-btn primary" style="height:30px;padding:0 14px;font-family:var(--font);display:inline-flex;align-items:center;gap:5px">
       <i class="ti ti-search"></i> Filtrar
     </button>
@@ -354,6 +362,21 @@ function bindFiltros(){
     }));
   });
   document.addEventListener('click',e=>{if(!drop.contains(e.target)&&e.target!==inp) drop.style.display='none';});
+
+  // Intervalo de datas
+  document.getElementById('apt-di')?.addEventListener('change',e=>{
+    S.dataIni=e.target.value;
+    // Desmarcar semanas quando usa intervalo livre
+    S.semanas=[];
+    document.querySelectorAll('.apt-sem-cb').forEach(cb=>cb.checked=false);
+    atualizarLblSem();
+  });
+  document.getElementById('apt-df')?.addEventListener('change',e=>{
+    S.dataFim=e.target.value;
+    S.semanas=[];
+    document.querySelectorAll('.apt-sem-cb').forEach(cb=>cb.checked=false);
+    atualizarLblSem();
+  });
 
   document.getElementById('apt-btn-filtrar').addEventListener('click',()=>{ S.hmPag=0; carregarDados(); });
   document.getElementById('apt-btn-limpar').addEventListener('click',()=>{
@@ -805,7 +828,7 @@ async function processarImport(file){
 
     // Remove prefixo de aspas simples do formato SYLK do PIMS
     function L(v){ if(v==null) return null; const s=String(v).trim(); return s.startsWith("'")?s.slice(1).trim():s; }
-    const reCracha=/^(\d{3,8})\s*-\s*(.+)/,reData=/^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
+    const reCracha=/^(\d{3,9})\s*-\s*(.+)/,reData=/^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
     function serialToIso(n){const d=new Date(Date.UTC(1900,0,1)+(n-2)*86400000);return d.toISOString().slice(0,10);}
     function parseData(v){
       if(v==null) return null;
