@@ -191,85 +191,96 @@ function recalcPeriodo(){
 
 function htmlFiltros(){
   const semFim=semAtual()+8;
-  // Gerar chips de semana — últimas 8 + próximas 8
-  let semChips='';
+  let semItems='';
   for(let s=Math.max(1,semAtual()-7);s<=semFim;s++){
     const {ini,fim}=semParaDatas(s);
     const isAt=s===semAtual(), isSel=S.semanas.includes(s);
-    semChips+=`<label style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border:1px solid ${isSel?'var(--yellow)':'var(--border)'};border-radius:20px;background:${isSel?'#fffbeb':'var(--card-bg)'};font-size:10px;font-weight:${isSel?'700':'500'};color:${isSel?'#92400e':'#374151'};cursor:pointer;white-space:nowrap;transition:all .15s">
-      <input type="checkbox" class="apt-sem-chk" value="${s}" ${isSel?'checked':''} style="display:none">
-      ${isAt?'★ ':''}Sem ${s} · ${fmtDM(ini)}–${fmtDM(fim)}
-    </label>`;
+    semItems+=`<div class="dd-item"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;width:100%">
+      <input type="checkbox" class="apt-sem-cb" value="${s}" ${isSel?'checked':''} style="accent-color:var(--yellow)">
+      ${isAt?'<strong>':''}Sem ${s}${isAt?' ★':''} · ${fmtDM(ini)}–${fmtDM(fim)}${isAt?'</strong>':''}
+    </label></div>`;
   }
+  const semLbl=()=>{
+    if(!S.semanas.length) return 'Nenhuma';
+    const sorted=[...S.semanas].sort((a,b)=>a-b);
+    if(sorted.length===1){const{ini,fim}=semParaDatas(sorted[0]);return `Sem ${sorted[0]} · ${fmtDM(ini)}–${fmtDM(fim)}`;}
+    return `Sem ${sorted[0]}–${sorted[sorted.length-1]} (${sorted.length} semanas)`;
+  };
   const modLbl=S.modalidades.length===MODALIDADES.length?'Todas':S.modalidades.length===0?'Nenhuma':S.modalidades.join(', ');
 
   return `
-  <div class="filters-bar apt-filters-grid" style="margin-bottom:16px;flex-wrap:wrap;gap:10px;align-items:flex-start">
+  <div class="filters-bar" style="margin-bottom:16px;flex-wrap:wrap;gap:10px;align-items:center">
 
-    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-      <span class="filter-label">Safra</span>
-      <div class="dd-wrap">
-        <button class="dd-btn" onclick="toggleDD('dd-safra')">
-          <i class="ti ti-calendar"></i>
-          <span class="dd-label" id="lbl-safra">${S.safra}</span>
-          <i class="ti ti-chevron-down dd-arrow"></i>
-        </button>
-        <div class="dd-panel" id="dd-safra">
-          ${SAFRAS.map(s=>`<div class="dd-item apt-safra-item" data-val="${s}">${s===S.safra?'<i class="ti ti-check" style="color:var(--yellow)"></i>':''} ${s}</div>`).join('')}
-        </div>
-      </div>
-    </div>
-
-    <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:280px">
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="filter-label">Semanas</span>
-        <button id="apt-sem-todas" class="dd-action-btn secondary" style="height:22px;padding:0 8px;font-size:10px;font-family:var(--font)">Limpar</button>
-      </div>
-      <div id="apt-sem-chips" style="display:flex;gap:5px;flex-wrap:wrap">${semChips}</div>
-      <div style="font-size:10px;color:#9ca3af">Clique para selecionar/desmarcar · Período: <span id="apt-per-label">${fmtFull(S.dataIni)} – ${fmtFull(S.dataFim)}</span></div>
-    </div>
-
-    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-      <span class="filter-label">Modalidade</span>
-      <div class="dd-wrap">
-        <button class="dd-btn" onclick="toggleDD('dd-mod')" style="min-width:110px">
-          <i class="ti ti-tag"></i>
-          <span class="dd-label" id="lbl-mod">${modLbl}</span>
-          <i class="ti ti-chevron-down dd-arrow"></i>
-        </button>
-        <div class="dd-panel" id="dd-mod">
-          <div class="dd-actions">
-            <button class="dd-action-btn primary" id="apt-mod-todas">Todas</button>
-            <button class="dd-action-btn secondary" id="apt-mod-nenhuma">Nenhuma</button>
-          </div>
-          ${MODALIDADES.map(m=>`<div class="dd-item"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;width:100%">
-            <input type="checkbox" class="apt-mod-cb" value="${m}" ${S.modalidades.includes(m)?'checked':''} style="accent-color:var(--yellow)"> ${m}
-          </label></div>`).join('')}
-        </div>
-      </div>
-    </div>
-
-    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-      <span class="filter-label">Colaborador</span>
-      <div style="position:relative">
-        <div class="dd-btn" style="cursor:text;min-width:180px;padding:0;gap:0">
-          <i class="ti ti-search" style="padding:0 8px;color:#9ca3af"></i>
-          <input type="text" id="apt-colab" placeholder="Nome ou crachá…"
-            style="border:none;background:transparent;outline:none;font-family:var(--font);font-size:11px;color:#374151;flex:1;height:30px;padding-right:8px">
-        </div>
-        <div id="apt-colab-drop" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:260px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);z-index:300;max-height:200px;overflow-y:auto"></div>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-      <button id="apt-btn-filtrar" class="dd-action-btn primary" style="height:30px;padding:0 14px;font-family:var(--font);display:flex;align-items:center;gap:5px">
-        <i class="ti ti-search"></i> Filtrar
+    <span class="filter-label">Safra</span>
+    <div class="dd-wrap">
+      <button class="dd-btn" onclick="toggleDD('dd-safra')">
+        <i class="ti ti-calendar"></i>
+        <span class="dd-label" id="lbl-safra">${S.safra}</span>
+        <i class="ti ti-chevron-down dd-arrow"></i>
       </button>
-      <button id="apt-btn-limpar" class="dd-action-btn secondary" style="height:30px;padding:0 12px;font-family:var(--font);display:flex;align-items:center;gap:5px">
-        <i class="ti ti-x"></i> Limpar
-      </button>
+      <div class="dd-panel" id="dd-safra">
+        ${SAFRAS.map(s=>`<div class="dd-item apt-safra-item" data-val="${s}">${s===S.safra?'<i class="ti ti-check" style="color:var(--yellow)"></i>':''} ${s}</div>`).join('')}
+      </div>
     </div>
-  </div>`;
+
+    <span class="filter-label">Semanas</span>
+    <div class="dd-wrap">
+      <button class="dd-btn" onclick="toggleDD('dd-sem')" style="min-width:200px">
+        <i class="ti ti-calendar-week"></i>
+        <span class="dd-label" id="lbl-sem">${semLbl()}</span>
+        <i class="ti ti-chevron-down dd-arrow"></i>
+      </button>
+      <div class="dd-panel" id="dd-sem" style="max-height:280px;overflow-y:auto;min-width:240px">
+        <div class="dd-actions">
+          <button class="dd-action-btn primary" id="apt-sem-ultimas">Últimas 2</button>
+          <button class="dd-action-btn secondary" id="apt-sem-limpar">Limpar</button>
+        </div>
+        ${semItems}
+      </div>
+    </div>
+
+    <span class="filter-label">Modalidade</span>
+    <div class="dd-wrap">
+      <button class="dd-btn" onclick="toggleDD('dd-mod')" style="min-width:110px">
+        <i class="ti ti-tag"></i>
+        <span class="dd-label" id="lbl-mod">${modLbl}</span>
+        <i class="ti ti-chevron-down dd-arrow"></i>
+      </button>
+      <div class="dd-panel" id="dd-mod">
+        <div class="dd-actions">
+          <button class="dd-action-btn primary" id="apt-mod-todas">Todas</button>
+          <button class="dd-action-btn secondary" id="apt-mod-nenhuma">Nenhuma</button>
+        </div>
+        ${MODALIDADES.map(m=>`<div class="dd-item"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;width:100%">
+          <input type="checkbox" class="apt-mod-cb" value="${m}" ${S.modalidades.includes(m)?'checked':''} style="accent-color:var(--yellow)"> ${m}
+        </label></div>`).join('')}
+      </div>
+    </div>
+
+    <span class="filter-label">Colaborador</span>
+    <div style="position:relative">
+      <div class="dd-btn" style="cursor:text;min-width:180px;padding:0;gap:0">
+        <i class="ti ti-search" style="padding:0 8px;color:#9ca3af"></i>
+        <input type="text" id="apt-colab" placeholder="Nome ou crachá…"
+          style="border:none;background:transparent;outline:none;font-family:var(--font);font-size:11px;color:#374151;flex:1;height:30px;padding-right:8px">
+      </div>
+      <div id="apt-colab-drop" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:260px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);z-index:300;max-height:200px;overflow-y:auto"></div>
+    </div>
+
+    <button id="apt-btn-filtrar" class="dd-action-btn primary" style="height:30px;padding:0 14px;font-family:var(--font);display:inline-flex;align-items:center;gap:5px">
+      <i class="ti ti-search"></i> Filtrar
+    </button>
+    <button id="apt-btn-limpar" class="dd-action-btn secondary" style="height:30px;padding:0 12px;font-family:var(--font);display:inline-flex;align-items:center;gap:5px">
+      <i class="ti ti-x"></i> Limpar
+    </button>
+  </div>`;}
+
+function atualizarLblSem(){
+  const el=document.getElementById('lbl-sem'); if(!el) return;
+  if(!S.semanas.length){el.textContent='Nenhuma';return;}
+  const sorted=[...S.semanas].sort((a,b)=>a-b);
+  if(sorted.length===1){const{ini,fim}=semParaDatas(sorted[0]);el.textContent=`Sem ${sorted[0]} · ${fmtDM(ini)}–${fmtDM(fim)}`;return;}
+  el.textContent=`Sem ${sorted[0]}–${sorted[sorted.length-1]} (${sorted.length} semanas)`;
 }
 
 function bindFiltros(){
@@ -280,35 +291,27 @@ function bindFiltros(){
     document.getElementById('dd-safra').classList.remove('show');
   }));
 
-  // Semanas — chips checkbox
-  document.getElementById('apt-sem-chips').addEventListener('change',e=>{
-    if(!e.target.classList.contains('apt-sem-chk')) return;
+  // Semanas — dropdown com checkboxes
+  document.getElementById('dd-sem').addEventListener('change',e=>{
+    if(!e.target.classList.contains('apt-sem-cb')) return;
     const s=parseInt(e.target.value);
     if(e.target.checked){ if(!S.semanas.includes(s)) S.semanas.push(s); }
     else S.semanas=S.semanas.filter(x=>x!==s);
-    recalcPeriodo();
-    // Atualizar label e estilo do chip
-    const lbl=e.target.closest('label');
-    if(lbl){
-      lbl.style.borderColor=e.target.checked?'var(--yellow)':'var(--border)';
-      lbl.style.background=e.target.checked?'#fffbeb':'var(--card-bg)';
-      lbl.style.color=e.target.checked?'#92400e':'#374151';
-      lbl.style.fontWeight=e.target.checked?'700':'500';
-    }
-    const pl=document.getElementById('apt-per-label');
-    if(pl) pl.textContent=S.semanas.length?`${fmtFull(S.dataIni)} – ${fmtFull(S.dataFim)}`:'Nenhuma semana selecionada';
+    recalcPeriodo(); atualizarLblSem();
   });
-
-  document.getElementById('apt-sem-todas').addEventListener('click',()=>{
-    S.semanas=[];
-    document.querySelectorAll('.apt-sem-chk').forEach(cb=>{
-      cb.checked=false;
-      const lbl=cb.closest('label');
-      if(lbl){lbl.style.borderColor='var(--border)';lbl.style.background='var(--card-bg)';lbl.style.color='#374151';lbl.style.fontWeight='500';}
+  document.getElementById('apt-sem-ultimas').addEventListener('click',()=>{
+    const s1=semAtual()-1, s2=semAtual();
+    S.semanas=[s1,s2]; recalcPeriodo();
+    document.querySelectorAll('.apt-sem-cb').forEach(cb=>{
+      const v=parseInt(cb.value); cb.checked=v===s1||v===s2;
     });
-    recalcPeriodo();
-    const pl=document.getElementById('apt-per-label');
-    if(pl) pl.textContent='Nenhuma semana selecionada';
+    atualizarLblSem();
+    document.getElementById('dd-sem').classList.remove('show');
+  });
+  document.getElementById('apt-sem-limpar').addEventListener('click',()=>{
+    S.semanas=[]; recalcPeriodo();
+    document.querySelectorAll('.apt-sem-cb').forEach(cb=>cb.checked=false);
+    atualizarLblSem();
   });
 
   // Modalidade
