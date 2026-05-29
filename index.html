@@ -251,7 +251,50 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
   overflow: hidden;
   transition: max-height 280ms cubic-bezier(.4,0,.2,1);
 }
-.nav-group-items.open { max-height: 400px; }
+.nav-group-items.open { max-height: 600px; }
+
+/* Sub-grupo dentro de um grupo (nível 2 colapsável) */
+.nav-subgroup-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 7px 20px;
+  cursor: pointer;
+  color: rgba(255,255,255,.45);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  transition: color var(--transition);
+  user-select: none;
+}
+.nav-subgroup-btn:hover { color: rgba(255,255,255,.75); }
+.nav-subgroup-btn.open  { color: var(--yellow); }
+.nav-subgroup-btn i.sub-icon { font-size: 13px; flex-shrink: 0; }
+.nav-subgroup-chevron {
+  font-size: 10px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--transition), transform var(--transition);
+  flex-shrink: 0;
+}
+#sidebar.expanded .nav-subgroup-chevron { opacity: 1; }
+.nav-subgroup-btn.open .nav-subgroup-chevron { transform: rotate(180deg); }
+.nav-subgroup-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  opacity: 0;
+  transition: opacity var(--transition);
+  flex: 1;
+}
+#sidebar.expanded .nav-subgroup-label { opacity: 1; }
+.nav-subgroup-items {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 250ms cubic-bezier(.4,0,.2,1);
+}
+.nav-subgroup-items.open { max-height: 300px; }
 
 /* Item */
 .nav-item {
@@ -405,7 +448,22 @@ body { font-family: var(--font); background: var(--bg); color: #1a1a1a; font-siz
 .drawer-group-btn.open .drawer-group-chevron { transform: rotate(180deg); }
 
 .drawer-group-items { max-height: 0; overflow: hidden; transition: max-height 280ms cubic-bezier(.4,0,.2,1); }
-.drawer-group-items.open { max-height: 400px; }
+.drawer-group-items.open { max-height: 600px; }
+
+/* Sub-grupo no drawer mobile */
+.drawer-subgroup-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px 8px 32px;
+  cursor: pointer; color: rgba(255,255,255,.45);
+  font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  transition: color var(--transition);
+}
+.drawer-subgroup-btn:hover { color: rgba(255,255,255,.75); }
+.drawer-subgroup-btn.open  { color: var(--yellow); }
+.drawer-subgroup-chevron { font-size: 10px; margin-left: auto; transition: transform var(--transition); }
+.drawer-subgroup-btn.open .drawer-subgroup-chevron { transform: rotate(180deg); }
+.drawer-subgroup-items { max-height: 0; overflow: hidden; transition: max-height 250ms cubic-bezier(.4,0,.2,1); }
+.drawer-subgroup-items.open { max-height: 300px; }
 
 .drawer-item {
   display: flex; align-items: center; gap: 10px;
@@ -1004,6 +1062,7 @@ function montarNav() {
 
 function construirNav(container, modo) {
   container.innerHTML = '';
+
   MAN360_CONFIG.nav.forEach((grupo, gi) => {
     if (modo === 'desktop') {
       const grp = document.createElement('div');
@@ -1011,42 +1070,62 @@ function construirNav(container, modo) {
 
       const btn = document.createElement('div');
       btn.className = 'nav-group-btn';
-      btn.dataset.gi = gi;
       btn.innerHTML = `
         <i class="ti ti-${grupo.icon} group-icon" aria-hidden="true"></i>
         <span class="nav-group-label">${grupo.group}</span>
         <i class="ti ti-chevron-down nav-group-chevron" aria-hidden="true"></i>
       `;
 
-      const items = document.createElement('div');
-      items.className = 'nav-group-items';
-      items.dataset.gi = gi;
+      const itemsWrap = document.createElement('div');
+      itemsWrap.className = 'nav-group-items';
 
-      grupo.items.forEach(item => {
-        const el = criarNavItem(item, 'desktop');
-        items.appendChild(el);
+      // Itens diretos do grupo (nível 2)
+      (grupo.items || []).forEach(item => {
+        itemsWrap.appendChild(criarNavItem(item, 'desktop'));
+      });
+
+      // Sub-grupos (nível 2 colapsável → itens nível 3)
+      (grupo.subgroups || []).forEach((sg, si) => {
+        const sgBtn = document.createElement('div');
+        sgBtn.className = 'nav-subgroup-btn';
+        sgBtn.innerHTML = `
+          <i class="ti ti-${sg.icon} sub-icon" aria-hidden="true"></i>
+          <span class="nav-subgroup-label">${sg.label}</span>
+          <i class="ti ti-chevron-down nav-subgroup-chevron" aria-hidden="true"></i>
+        `;
+        const sgItems = document.createElement('div');
+        sgItems.className = 'nav-subgroup-items';
+        (sg.items || []).forEach(item => sgItems.appendChild(criarNavItem(item, 'desktop', true)));
+
+        sgBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          document.getElementById('sidebar').classList.add('expanded');
+          const isOpen = sgItems.classList.contains('open');
+          // Fecha outros subgrupos do mesmo grupo
+          itemsWrap.querySelectorAll('.nav-subgroup-items').forEach(x => x.classList.remove('open'));
+          itemsWrap.querySelectorAll('.nav-subgroup-btn').forEach(x => x.classList.remove('open'));
+          if (!isOpen) { sgItems.classList.add('open'); sgBtn.classList.add('open'); }
+        });
+
+        itemsWrap.appendChild(sgBtn);
+        itemsWrap.appendChild(sgItems);
       });
 
       btn.addEventListener('click', () => {
-        // Expande sidebar se estiver colapsada
         document.getElementById('sidebar').classList.add('expanded');
-        const isOpen = items.classList.contains('open');
-        // Fecha todos
+        const isOpen = itemsWrap.classList.contains('open');
         container.querySelectorAll('.nav-group-items').forEach(x => x.classList.remove('open'));
         container.querySelectorAll('.nav-group-btn').forEach(x => x.classList.remove('open'));
-        if (!isOpen) {
-          items.classList.add('open');
-          btn.classList.add('open');
-        }
+        if (!isOpen) { itemsWrap.classList.add('open'); btn.classList.add('open'); }
       });
 
       grp.appendChild(btn);
-      grp.appendChild(items);
+      grp.appendChild(itemsWrap);
       container.appendChild(grp);
+
     } else {
       // Mobile drawer
       const grp = document.createElement('div');
-
       const btn = document.createElement('div');
       btn.className = 'drawer-group-btn';
       btn.innerHTML = `
@@ -1054,34 +1133,56 @@ function construirNav(container, modo) {
         <span class="drawer-group-label">${grupo.group}</span>
         <i class="ti ti-chevron-down drawer-group-chevron" aria-hidden="true"></i>
       `;
+      const itemsWrap = document.createElement('div');
+      itemsWrap.className = 'drawer-group-items';
 
-      const items = document.createElement('div');
-      items.className = 'drawer-group-items';
+      (grupo.items || []).forEach(item => itemsWrap.appendChild(criarNavItem(item, 'mobile')));
 
-      grupo.items.forEach(item => {
-        const el = criarNavItem(item, 'mobile');
-        items.appendChild(el);
+      (grupo.subgroups || []).forEach(sg => {
+        const sgBtn = document.createElement('div');
+        sgBtn.className = 'drawer-subgroup-btn';
+        sgBtn.innerHTML = `
+          <i class="ti ti-${sg.icon}" aria-hidden="true"></i>
+          ${sg.label}
+          <i class="ti ti-chevron-down drawer-subgroup-chevron" aria-hidden="true"></i>
+        `;
+        const sgItems = document.createElement('div');
+        sgItems.className = 'drawer-subgroup-items';
+        (sg.items || []).forEach(item => sgItems.appendChild(criarNavItem(item, 'mobile', true)));
+
+        sgBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          const isOpen = sgItems.classList.contains('open');
+          itemsWrap.querySelectorAll('.drawer-subgroup-items').forEach(x => x.classList.remove('open'));
+          itemsWrap.querySelectorAll('.drawer-subgroup-btn').forEach(x => x.classList.remove('open'));
+          if (!isOpen) { sgItems.classList.add('open'); sgBtn.classList.add('open'); }
+        });
+
+        itemsWrap.appendChild(sgBtn);
+        itemsWrap.appendChild(sgItems);
       });
 
       btn.addEventListener('click', () => {
-        const isOpen = items.classList.contains('open');
+        const isOpen = itemsWrap.classList.contains('open');
         container.querySelectorAll('.drawer-group-items').forEach(x => x.classList.remove('open'));
         container.querySelectorAll('.drawer-group-btn').forEach(x => x.classList.remove('open'));
-        if (!isOpen) { items.classList.add('open'); btn.classList.add('open'); }
+        if (!isOpen) { itemsWrap.classList.add('open'); btn.classList.add('open'); }
       });
 
       grp.appendChild(btn);
-      grp.appendChild(items);
+      grp.appendChild(itemsWrap);
       container.appendChild(grp);
     }
   });
 }
 
-function criarNavItem(item, modo) {
+function criarNavItem(item, modo, isSubItem) {
   const isWip = item.status === 'wip';
   const el = document.createElement('div');
   el.className = (modo === 'desktop' ? 'nav-item' : 'drawer-item') + (isWip ? ' wip' : '');
   el.dataset.page = item.page;
+  if (isSubItem && modo === 'desktop') el.style.paddingLeft = '28px';
+  if (isSubItem && modo === 'mobile')  el.style.paddingLeft = '44px';
 
   if (modo === 'desktop') {
     el.innerHTML = `
@@ -1096,11 +1197,8 @@ function criarNavItem(item, modo) {
   }
 
   el.addEventListener('click', () => {
-    if (isWip) {
-      mostrarWip(item);
-    } else {
-      navegarPara(item);
-    }
+    if (isWip) { mostrarWip(item); }
+    else        { navegarPara(item); }
     if (modo === 'mobile') fecharDrawer();
   });
   return el;
@@ -1110,20 +1208,35 @@ function setActiveItem(page) {
   document.querySelectorAll('.nav-item, .drawer-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);
   });
-  // Abre o grupo que contém o item ativo no desktop
+  // Desktop — abre grupo e subgrupo que contém o item ativo
   document.querySelectorAll('.nav-group-items').forEach(items => {
-    const hasActive = items.querySelector(`.nav-item[data-page="${page}"]`);
-    if (hasActive) {
+    if (items.querySelector(`.nav-item[data-page="${page}"]`)) {
       items.classList.add('open');
       items.previousElementSibling?.classList.add('open');
     }
+    items.querySelectorAll('.nav-subgroup-items').forEach(sg => {
+      if (sg.querySelector(`.nav-item[data-page="${page}"]`)) {
+        sg.classList.add('open');
+        sg.previousElementSibling?.classList.add('open');
+        items.classList.add('open');
+        items.previousElementSibling?.classList.add('open');
+      }
+    });
   });
+  // Mobile drawer
   document.querySelectorAll('.drawer-group-items').forEach(items => {
-    const hasActive = items.querySelector(`.drawer-item[data-page="${page}"]`);
-    if (hasActive) {
+    if (items.querySelector(`.drawer-item[data-page="${page}"]`)) {
       items.classList.add('open');
       items.previousElementSibling?.classList.add('open');
     }
+    items.querySelectorAll('.drawer-subgroup-items').forEach(sg => {
+      if (sg.querySelector(`.drawer-item[data-page="${page}"]`)) {
+        sg.classList.add('open');
+        sg.previousElementSibling?.classList.add('open');
+        items.classList.add('open');
+        items.previousElementSibling?.classList.add('open');
+      }
+    });
   });
 }
 
