@@ -647,6 +647,54 @@ window.Modulos.apontamentos = {
     ));
   },
 
+
+  /* ── Ordem dos colaboradores por modalidade (localStorage) ── */
+  _chaveOrdem(mod) { return `apt_ordem_${mod||'all'}`; },
+  _carregarOrdem(mod) {
+    try { return JSON.parse(localStorage.getItem(this._chaveOrdem(mod))) || []; }
+    catch(e) { return []; }
+  },
+  _salvarOrdem(mod, chapas) {
+    try { localStorage.setItem(this._chaveOrdem(mod), JSON.stringify(chapas)); }
+    catch(e) {}
+  },
+  _aplicarOrdem(colabs, mod) {
+    const ordem = this._carregarOrdem(mod);
+    if (!ordem.length) return colabs;
+    const mapa = Object.fromEntries(colabs.map(c=>[c.cracha,c]));
+    const ordenados = ordem.map(ch => mapa[ch]).filter(Boolean);
+    const novos = colabs.filter(c => !ordem.includes(c.cracha));
+    return [...ordenados, ...novos];
+  },
+  _moverColab(cracha, direcao, turnoNome) {
+    // Pega a modalidade atual filtrada
+    const mod = this._s.modalidades.length===1 ? this._s.modalidades[0] : 'all';
+    // Pega colaboradores do turno
+    const turno = this._s.turnos.find(t=>t.nome===turnoNome);
+    let cf = this._s.colaboradores.filter(c=>this._completo(c));
+    if (this._s.colabChapa) cf=cf.filter(c=>String(c.cracha)===String(this._s.colabChapa));
+    else if (this._s.modalidades.length) cf=cf.filter(c=>this._s.modalidades.includes(c.modalidade));
+    const doTurno = this._aplicarOrdem(cf.filter(c=>c.turno_id===turno?.id), mod);
+    const idx = doTurno.findIndex(c=>c.cracha===cracha);
+    if (idx===-1) return;
+    const novoIdx = idx + direcao;
+    if (novoIdx<0||novoIdx>=doTurno.length) return;
+    // Trocar posições
+    [doTurno[idx], doTurno[novoIdx]] = [doTurno[novoIdx], doTurno[idx]];
+    // Salvar ordem de TODOS os colaboradores (não só do turno)
+    const todosOrdenados = this._aplicarOrdem(cf, mod);
+    const posicaoTurno = todosOrdenados.filter(c=>c.turno_id===turno?.id);
+    // Substituir posições do turno na ordem geral
+    let iT=0;
+    const novaOrdemGeral = todosOrdenados.map(c => {
+      if (c.turno_id===turno?.id) return doTurno[iT++];
+      return c;
+    });
+    this._salvarOrdem(mod, novaOrdemGeral.map(c=>c.cracha));
+    // Re-renderizar apenas o heatmap
+    this._carregarDados();
+  },
+
   /* ── Heatmap ── */
   _renderHeatmap(cf, todosDias, hhDia, ehFolga, deFerias, getJust, hhEsp, hj) {
     const el = document.getElementById('apt-heatmap'); if (!el) return;
@@ -671,7 +719,10 @@ window.Modulos.apontamentos = {
       return {bg:'#fb923c',fg:'#7c2d12',lbl:hh.toFixed(1)+'h'};
     };
 
-    // Agrupar por turno
+    // Modalidade atual para chave de ordem
+    const modAtual = s.modalidades.length===1 ? s.modalidades[0] : 'all';
+
+    // Agrupar por turno aplicando ordem salva
     const porTurno = {};
     s.turnos.forEach(t => porTurno[t.nome]=[]);
     porTurno['Não config.'] = [];
@@ -683,12 +734,30 @@ window.Modulos.apontamentos = {
 
     let linhas = '';
     [...s.turnos.map(t=>t.nome),'Não config.'].forEach(turno => {
-      const colabs = (porTurno[turno]||[]).sort((a,b)=>a.nome.localeCompare(b.nome));
-      if (!colabs.length) return;
+      const raw = (porTurno[turno]||[]);
+      if (!raw.length) return;
+      // Aplicar ordem salva (fallback: alfabética)
+      const ordemSalva = this._carregarOrdem(modAtual);
+      const colabs = ordemSalva.length
+        ? this._aplicarOrdem(raw, modAtual)
+        : raw.sort((a,b)=>a.nome.localeCompare(b.nome));
+
       linhas += `<div class="apt-turno-hdr">${turno==='Não config.'?'⚠ NÃO CONFIGURADO':turno.toUpperCase()}</div>`;
-      colabs.forEach(c => {
-        linhas += `<div style="font-size:11px;color:#374151;display:flex;align-items:center;height:26px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px;font-weight:600" title="${c.nome}">${c.nome.split(' ')[0]}</div>
-        ${dias.map(dia=>{const{bg,fg,lbl}=cellBg(c,dia);return `<div class="apt-hm-cell" data-ch="${c.cracha}" data-dia="${dia}" style="background:${bg};color:${fg}" title="${c.nome} · ${this._diaSem(dia)} ${this._fmtDM(dia)}">${lbl}</div>`;}).join('')}`;
+      colabs.forEach((c, idx) => {
+        const isFirst = idx===0, isLast = idx===colabs.length-1;
+        linhas += `
+          <div style="font-size:11px;color:#374151;display:flex;align-items:center;height:26px;gap:2px;padding-right:4px;font-weight:600;overflow:hidden" title="${c.nome}">
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.nome.split(' ')[0]}</span>
+            <div style="display:flex;flex-direction:column;gap:0;flex-shrink:0;opacity:.3;transition:opacity .15s" class="apt-ordem-btns" onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=.3">
+              <button class="apt-mover-btn" data-ch="${c.cracha}" data-dir="-1" data-turno="${turno}"
+                style="width:12px;height:12px;border:none;background:transparent;cursor:${isFirst?'default':'pointer'};color:${isFirst?'transparent':'#6b7280'};padding:0;font-size:9px;line-height:1;display:flex;align-items:center;justify-content:center"
+                ${isFirst?'disabled':''} title="Mover para cima">▲</button>
+              <button class="apt-mover-btn" data-ch="${c.cracha}" data-dir="1" data-turno="${turno}"
+                style="width:12px;height:12px;border:none;background:transparent;cursor:${isLast?'default':'pointer'};color:${isLast?'transparent':'#6b7280'};padding:0;font-size:9px;line-height:1;display:flex;align-items:center;justify-content:center"
+                ${isLast?'disabled':''} title="Mover para baixo">▼</button>
+            </div>
+          </div>
+          ${dias.map(dia=>{const{bg,fg,lbl}=cellBg(c,dia);return `<div class="apt-hm-cell" data-ch="${c.cracha}" data-dia="${dia}" style="background:${bg};color:${fg}" title="${c.nome} · ${this._diaSem(dia)} ${this._fmtDM(dia)}">${lbl}</div>`;}).join('')}`;
       });
     });
 
@@ -724,6 +793,13 @@ window.Modulos.apontamentos = {
 
     document.getElementById('hm-prev')?.addEventListener('click', () => { s.hmPag--; this._renderHeatmap(cf,todosDias,hhDia,ehFolga,deFerias,getJust,hhEsp,hj); });
     document.getElementById('hm-next')?.addEventListener('click', () => { s.hmPag++; this._renderHeatmap(cf,todosDias,hhDia,ehFolga,deFerias,getJust,hhEsp,hj); });
+    // Setas de reordenação
+    el.querySelectorAll('.apt-mover-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        this._moverColab(btn.dataset.ch, parseInt(btn.dataset.dir), btn.dataset.turno);
+      });
+    });
     el.querySelectorAll('.apt-hm-cell').forEach(cel => cel.addEventListener('click', () => {
       const c = cf.find(x=>String(x.cracha)===cel.dataset.ch);
       if (c) this._detalheCell(c, cel.dataset.dia, hhDia, hhEsp, hj);
