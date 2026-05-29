@@ -1588,4 +1588,91 @@ window.Modulos.cal_acomp = (() => {
         box-shadow: var(--shadow-md); padding: 20px;
         width: 300px; max-width: 100%;
       }
-      .cag-modal-titulo {
+      .cag-modal-titulo {        font-size: 13px; font-weight: 700; margin-bottom: 14px; color: var(--dark1);
+      }
+      .cag-modal-opcoes { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+      .cag-modal-opt {
+        width: 100%; padding: 9px 14px; border: 1px solid var(--border);
+        border-radius: var(--radius-sm); background: var(--bg);
+        font-family: var(--font); font-size: 12px; font-weight: 500;
+        color: #374151; cursor: pointer; text-align: left;
+        transition: background .12s, border-color .12s;
+      }
+      .cag-modal-opt:hover { border-color: var(--yellow); background: #fffbeb; }
+      .cag-modal-cancel {
+        width: 100%; padding: 8px; border: 1px solid var(--border);
+        border-radius: var(--radius-sm); background: var(--bg);
+        font-family: var(--font); font-size: 11px; font-weight: 600;
+        color: #6b7280; cursor: pointer;
+      }
+      .cag-modal-form { display: flex; flex-direction: column; gap: 6px; }
+      .cag-form-label { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9ca3af; }
+      .cag-form-input {
+        width: 100%; height: 32px; padding: 0 10px;
+        border: 1px solid var(--border); border-radius: var(--radius-sm);
+        font-family: var(--font); font-size: 12px; color: #374151;
+        background: var(--bg);
+      }
+      .cag-form-hint { font-size: 10px; min-height: 14px; }
+      .cag-tipo-opts { display: flex; gap: 4px; }
+      .cag-tipo-btn {
+        flex: 1; height: 28px; border: 1px solid var(--border);
+        border-radius: var(--radius-sm); background: var(--bg);
+        font-family: var(--font); font-size: 10px; font-weight: 600;
+        color: #6b7280; cursor: pointer; transition: all .12s;
+      }
+      .cag-tipo-btn.active { background: var(--yellow); border-color: var(--yellow-dk); color: var(--dark1); }
+      .cag-colab-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+      .cag-colab-item {
+        display: flex; align-items: center; gap: 8px;
+        padding: 7px 10px; border: 1px solid var(--border);
+        border-radius: var(--radius-sm); cursor: pointer;
+        font-size: 11px; color: #374151; font-weight: 500;
+        transition: background .12s;
+      }
+      .cag-colab-item:hover { background: var(--bg); }
+      .cag-colab-item.checked { background: var(--blue-l); border-color: #93c5fd; }
+      .cag-colab-item input { accent-color: var(--yellow); }
+      .cag-colab-hint { font-size: 9px; color: #9ca3af; margin-left: 4px; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  /* ── Carregar SortableJS dinamicamente ── */
+  function carregarSortable() {
+    return new Promise(resolve => {
+      if (typeof Sortable !== 'undefined') { resolve(); return; }
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js';
+      s.onload = resolve; s.onerror = resolve;
+      document.head.appendChild(s);
+    });
+  }
+
+  /* ════════════════════════════════════════════════
+     INIT
+  ════════════════════════════════════════════════ */
+  async function init(container) {
+    _container = container;
+    injetarCSS();
+
+    // Loading state — HTML no DOM ANTES de qualquer await
+    _container.innerHTML = `<div class="cag-loading"><i class="ti ti-loader-2"></i> Carregando acompanhamento...</div>`;
+
+    await carregarSortable();
+
+    try {
+      await carregarTudo();
+      renderizar();
+    } catch(e) {
+      console.error('cal_acomp:', e);
+      _container.innerHTML = `
+        <div style="padding:40px;text-align:center;color:#9ca3af">
+          <i class="ti ti-alert-circle" style="font-size:32px;display:block;margin-bottom:8px"></i>
+          Erro ao carregar: ${e.message}
+        </div>`;
+    }
+  }
+
+  return { init };
+})();
