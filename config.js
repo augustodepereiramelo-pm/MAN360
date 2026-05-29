@@ -37,7 +37,7 @@ const MAN360_CONFIG = {
           label: 'Caldeiraria',
           icon: 'flame',
           items: [
-            { label: 'Acompanhamento Serviços', page: 'cal_acomp',   icon: 'chart-bar',    status: 'wip' },
+            { label: 'Acompanhamento Serviços', page: 'cal_acomp', icon: 'chart-bar', status: 'active', module: 'modules/cal_acomp.js' },
             { label: 'Backlog Caldeiraria',     page: 'cal_backlog', icon: 'list-details', status: 'wip' },
           ],
         },
