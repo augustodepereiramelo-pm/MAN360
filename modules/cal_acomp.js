@@ -9,7 +9,7 @@ window.Modulos.cal_acomp = (() => {
 
   /* ── Semana âncora (mesma lógica do módulo apontamentos) ── */
   const ANCORA_SEMANA = 9;
-  const ANCORA_DATA   = new Date('2026-05-25');
+  const ANCORA_DATA   = new Date('2026-05-25T12:00:00'); // horário fixo evita problema UTC-3
 
   function semanaAtual() {
     const hoje = new Date();
@@ -44,7 +44,11 @@ window.Modulos.cal_acomp = (() => {
   }
 
   function isoDate(d) {
-    return d.toISOString().split('T')[0];
+    // Usar data local, não UTC — evita deslocamento por fuso UTC-3
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
   }
 
   /* ── Estado ── */
@@ -94,7 +98,7 @@ window.Modulos.cal_acomp = (() => {
     // ROTATIVO
     const ancora = colab.data_ref_folga || colab.primeira_folga;
     if (!ancora) return folgas;
-    const ancD = new Date(ancora + 'T00:00:00');
+    const ancD = new Date(ancora + 'T12:00:00'); // T12 evita deslocamento UTC-3
     const ciclo = (esc.dias_trabalho || 5) + 1; // trabalho + 1 folga
     let d = new Date(dataIni);
     while (d <= dataFim) {
@@ -111,7 +115,7 @@ window.Modulos.cal_acomp = (() => {
     const iso = isoDate(data);
     let total = 0;
     for (const m of (equipe.membros || [])) {
-      const colab = _colabs.find(c => c.chapa === m.chapa);
+      const colab = _colabs.find(c => (c.cracha || c.chapa) === m.chapa);
       if (!colab || !colab.turno_id) continue;
       // Férias
       if (_ferias.some(f => f.chapa === m.chapa && iso >= f.data_inicio && iso <= f.data_fim)) continue;
@@ -186,7 +190,7 @@ window.Modulos.cal_acomp = (() => {
 
     // Safras disponíveis
     const { data: safrasRaw } = await db
-      .from('programacao_semanal').select('safra').not('safra','is',null);
+      .from('programacao_semanal').select('safra').neq('safra', '');
     _safras = [...new Set((safrasRaw||[]).map(r=>r.safra))].sort().reverse();
     if (!_safra && _safras.length) _safra = _safras[0];
 
@@ -236,7 +240,7 @@ window.Modulos.cal_acomp = (() => {
 
     // Programação semanal
     const { data: prog } = await db.from('programacao_semanal')
-      .select('*, ordens_servico(tipo_atividade)')
+      .select('*')
       .eq('semana', _semana).eq('ano', ano);
     _progSem = prog || [];
 
@@ -500,7 +504,7 @@ window.Modulos.cal_acomp = (() => {
 
     // Membros
     const membrosHtml = (equipe.membros||[]).map(m => {
-      const colab = _colabs.find(c => c.chapa === m.chapa);
+      const colab = _colabs.find(c => (c.cracha || c.chapa) === m.chapa);
       const semTurno = colab && !colab.turno_id;
       return `<span class="cag-membro-tag${semTurno?' warn':''}" title="${semTurno?'Sem turno cadastrado':''}">
         ${m.nome ? m.nome.split(' ')[0] : m.chapa}${semTurno?' ⚠':''}
@@ -1155,7 +1159,7 @@ window.Modulos.cal_acomp = (() => {
       const emOutraEq = !chapasNaEq.has(c.chapa) && _equipes.some(e =>
         e.id !== equipeId && (e.membros||[]).some(m => m.chapa === c.chapa)
       );
-      const semTurno = !c.turno_id;
+      const semTurno = !c.turno_id && !c.turno;
       return { ...c, emOutraEq, semTurno };
     });
 
@@ -1164,8 +1168,8 @@ window.Modulos.cal_acomp = (() => {
       const aviso = c.semTurno ? ' ⚠ sem turno' : c.emOutraEq ? ' (outra equipe)' : '';
       return `
         <label class="cag-colab-item${naEq?' checked':''}">
-          <input type="checkbox" value="${c.chapa}"${naEq?' checked':''}>
-          <span>${c.nome || c.chapa}<span class="cag-colab-hint">${aviso}</span></span>
+          <input type="checkbox" value="${c.cracha || c.chapa}"${naEq?' checked':''}>
+          <span>${c.nome || c.cracha || c.chapa}<span class="cag-colab-hint">${aviso}</span></span>
         </label>
       `;
     }).join('');
@@ -1235,7 +1239,7 @@ window.Modulos.cal_acomp = (() => {
     // Adicionar novos
     for (const chapa of chapas) {
       if (!chapasAtuais.has(chapa)) {
-        const colab = _colabs.find(c => c.chapa === chapa);
+        const colab = _colabs.find(c => (c.cracha || c.chapa) === chapa);
         await db.from('cal_equipe_membros').insert({
           equipe_id: eqId, chapa, nome: colab?.nome || null,
           vigencia_inicio: new Date().toISOString()
